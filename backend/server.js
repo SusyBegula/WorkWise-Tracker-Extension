@@ -1,0 +1,129 @@
+import express from "express"
+import cors from "cors"
+import fs from "fs"
+import path from "path"
+
+const app = express()
+const PORT = process.env.PORT || 3000
+
+// Setup local screenshots directory
+const SCREENSHOTS_DIR = path.join(process.cwd(), "screenshots")
+if (!fs.existsSync(SCREENSHOTS_DIR)) {
+  fs.mkdirSync(SCREENSHOTS_DIR, { recursive: true })
+}
+
+app.use(cors())
+app.use(express.json({ limit: "10mb" })) // Increase payload limit to handle image data
+
+// Health check endpoint
+app.get("/health", (req, res) => {
+  res.json({ status: "ok" })
+})
+
+// Helper to format milliseconds into human-readable duration
+function formatDuration(ms) {
+  if (ms === undefined || ms === null) return "0s"
+  const totalSecs = Math.floor(ms / 1000)
+  const hrs = Math.floor(totalSecs / 3600)
+  const mins = Math.floor((totalSecs % 3600) / 60)
+  const secs = totalSecs % 60
+  
+  const parts = []
+  if (hrs > 0) parts.push(`${hrs}h`)
+  if (mins > 0) parts.push(`${mins}m`)
+  if (secs > 0 || parts.length === 0) parts.push(`${secs}s`)
+  return parts.join(" ")
+}
+
+// Endpoint to receive activity data from the extension
+app.post("/api/activity", (req, res) => {
+  const { eventType, url, title, timestamp, metadata } = req.body
+
+  const timeStr = new Date(timestamp).toLocaleTimeString()
+  
+  // Style console outputs using ANSI escape codes for readability
+  const blue = "\x1b[34m"
+  const green = "\x1b[32m"
+  const yellow = "\x1b[33m"
+  const red = "\x1b[31m"
+  const cyan = "\x1b[36m"
+  const reset = "\x1b[0m"
+  const bold = "\x1b[1m"
+  const gray = "\x1b[90m"
+
+  if (eventType === "SESSION_STOPPED") {
+    console.log(`\n${bold}${red}============================================================${reset}`)
+    console.log(`${bold}${red}🛑 SESSION STOPPED [${timeStr}]${reset}`)
+    console.log(`${bold}Summary Report:${reset}`)
+    console.log(`  • ${bold}Total Session Duration:${reset}  ${formatDuration(metadata.totalSessionTimeMs)}`)
+    console.log(`  • ${bold}Actual Working Time:${reset}     ${cyan}${formatDuration(metadata.totalActiveTimeMs)}${reset}`)
+    console.log(`  • ${bold}Total Paused Duration:${reset}   ${yellow}${formatDuration(metadata.totalPausedTimeMs)}${reset}`)
+    console.log(`  • ${bold}Total Pauses:${reset}             ${metadata.pauseCount}`)
+    console.log(`  • ${bold}Total Events Captured:${reset}   ${green}${metadata.totalEvents}${reset}`)
+    
+    if (metadata.pauseHistory && metadata.pauseHistory.length > 0) {
+      console.log(`\n  ${bold}Pause Breakdown:${reset}`)
+      metadata.pauseHistory.forEach((pause, idx) => {
+        const pauseTime = new Date(pause.pausedAt).toLocaleTimeString()
+        console.log(`    ${gray}[#${idx + 1}] Paused at ${pauseTime} for ${formatDuration(pause.durationMs)}${reset}`)
+      })
+    }
+    console.log(`${bold}${red}============================================================${reset}\n`)
+  } else if (eventType === "SESSION_STARTED") {
+    console.log(`\n${bold}${green}============================================================${reset}`)
+    console.log(`${bold}${green}🚀 SESSION STARTED [${timeStr}]${reset}`)
+    console.log(`  Tracking activated. Listening to browser events...`)
+    console.log(`${bold}${green}============================================================${reset}\n`)
+  } else if (eventType === "SCREENSHOT_CAPTURED") {
+    console.log(`\n${bold}[${timeStr}] EVENT: SCREENSHOT_CAPTURED${reset}`)
+    try {
+      const base64Data = metadata.image.replace(/^data:image\/jpeg;base64,/, "")
+      const buffer = Buffer.from(base64Data, "base64")
+      
+      // Sanitize tab title to make it safe for file systems
+      const cleanTitle = title
+        ? title.replace(/[^a-zA-Z0-9\s-_]/g, "").trim().substring(0, 50).replace(/\s+/g, "_")
+        : "unknown"
+
+      // Format date, time, and milliseconds for uniqueness
+      const now = new Date()
+      const dateStr = now.toISOString().split("T")[0] // YYYY-MM-DD
+      const timeStrFormatted = now.toTimeString().split(" ")[0].replace(/:/g, "-") // HH-MM-SS
+      const ms = String(now.getMilliseconds()).padStart(3, "0")
+      
+      const filename = `${cleanTitle}_${dateStr}_${timeStrFormatted}-${ms}.jpg`
+      const filepath = path.join(SCREENSHOTS_DIR, filename)
+      
+      fs.writeFileSync(filepath, buffer)
+      console.log(`  ${green}Saved to:${reset} ${filepath}`)
+    } catch (err) {
+      console.error("  Failed to save screenshot:", err)
+    }
+    console.log(`${gray}------------------------------------------------------------${reset}`)
+  } else {
+    // Normal activity event logging
+    console.log(`\n${bold}[${timeStr}] EVENT: ${eventType}${reset}`)
+    
+    if (url) {
+      console.log(`  ${green}URL:${reset}   ${url}`)
+    }
+    if (title) {
+      console.log(`  ${blue}Title:${reset} ${title}`)
+    }
+    if (metadata && Object.keys(metadata).length > 0) {
+      const printMetadata = { ...metadata }
+      if (printMetadata.image) {
+        printMetadata.image = "[Base64 Image Data]"
+      }
+      console.log(`  ${yellow}Data:${reset}  ${JSON.stringify(printMetadata, null, 2).replace(/\n/g, "\n  ")}`)
+    }
+    console.log(`${gray}------------------------------------------------------------${reset}`)
+  }
+
+  res.status(200).json({ success: true })
+})
+
+app.listen(PORT, () => {
+  console.log(`\x1b[32m\x1b[1m🚀 Activity Logging Server is running on http://localhost:${PORT}\x1b[0m`)
+  console.log(`\x1b[90mWaiting for browser events from extension...\x1b[0m\n`)
+})
