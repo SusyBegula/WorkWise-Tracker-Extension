@@ -26,15 +26,33 @@ async function logActivityRaw(
   })
 
   try {
+    let token = ""
+    if (typeof chrome !== "undefined" && chrome.storage && chrome.storage.local) {
+      const data = await chrome.storage.local.get("token")
+      token = data.token || ""
+    }
+
+    const headers: any = {
+      "Content-Type": "application/json"
+    }
+    if (token) {
+      headers["Authorization"] = `Bearer ${token}`
+    }
+
     const response = await fetch(BACKEND_URL, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json"
-      },
+      headers,
       body: JSON.stringify(payload)
     })
+
     if (!response.ok) {
       console.warn(`[Activity Tracker] Failed to send log. Server responded with status: ${response.status}`)
+      
+      // Auto logout/stop session if token becomes invalid (unauthorized)
+      if (response.status === 401 || response.status === 403) {
+        console.warn(`[Activity Tracker] Auth failed (${response.status}). Force-stopping active session.`)
+        await transitionSessionState("inactive")
+      }
     }
   } catch (error) {
     console.error("[Activity Tracker] Network error connecting to backend logger:", error)

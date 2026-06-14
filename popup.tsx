@@ -11,6 +11,14 @@ function IndexPopup() {
   const [eventCount, setEventCount] = useState(0)
   const [ticker, setTicker] = useState(0)
 
+  // Auth States
+  const [token, setToken] = useState<string | null>(null)
+  const [userEmail, setUserEmail] = useState<string | null>(null)
+  const [emailInput, setEmailInput] = useState("")
+  const [passwordInput, setPasswordInput] = useState("")
+  const [loginError, setLoginError] = useState<string | null>(null)
+  const [isLoading, setIsLoading] = useState(false)
+
   const refreshState = () => {
     if (typeof chrome !== "undefined" && chrome.storage && chrome.storage.local) {
       chrome.storage.local.get(
@@ -21,7 +29,9 @@ function IndexPopup() {
           "accumulatedActiveTime",
           "accumulatedPauseTime",
           "pauseCount",
-          "eventCount"
+          "eventCount",
+          "token",
+          "userEmail"
         ],
         (data) => {
           setStatus(data.sessionStatus || "inactive")
@@ -31,6 +41,8 @@ function IndexPopup() {
           setAccumulatedPauseTime(data.accumulatedPauseTime || 0)
           setPauseCount(data.pauseCount || 0)
           setEventCount(data.eventCount || 0)
+          setToken(data.token || null)
+          setUserEmail(data.userEmail || null)
         }
       )
     }
@@ -62,6 +74,62 @@ function IndexPopup() {
 
     return () => clearInterval(timer)
   }, [status])
+
+  const handleLogin = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setLoginError(null)
+    setIsLoading(true)
+
+    try {
+      const response = await fetch("http://localhost:3000/api/login", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          email: emailInput,
+          password: passwordInput
+        })
+      })
+
+      const data = await response.json()
+
+      if (!response.ok) {
+        setLoginError(data.error || "Login failed")
+      } else {
+        if (typeof chrome !== "undefined" && chrome.storage && chrome.storage.local) {
+          await chrome.storage.local.set({
+            token: data.token,
+            userEmail: data.email
+          })
+          setToken(data.token)
+          setUserEmail(data.email)
+        }
+      }
+    } catch (err) {
+      setLoginError("Cannot connect to server. Is the backend running?")
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  const handleLogout = async () => {
+    // If a session is active, stop it first
+    if (status !== "inactive") {
+      if (typeof chrome !== "undefined" && chrome.runtime) {
+        chrome.runtime.sendMessage({ type: "TRANSITION_STATE", nextStatus: "inactive" })
+      }
+    }
+
+    if (typeof chrome !== "undefined" && chrome.storage && chrome.storage.local) {
+      await chrome.storage.local.remove(["token", "userEmail"])
+      setToken(null)
+      setUserEmail(null)
+      setEmailInput("")
+      setPasswordInput("")
+      setLoginError(null)
+    }
+  }
 
   const togglePower = () => {
     const nextStatus = status === "inactive" ? "active" : "inactive"
@@ -110,6 +178,101 @@ function IndexPopup() {
     totalSessionTimeMs = 0
   }
 
+  // If not logged in, render the Login Screen
+  if (!token) {
+    return (
+      <div className="popup-container">
+        <div className="header-container" style={{ borderBottom: "none", paddingBottom: 0 }}>
+          <div className="header" style={{ width: "100%", alignItems: "center", textAlign: "center" }}>
+            <div className="logo-area" style={{ justifyContent: "center" }}>
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.5"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                className="logo-icon inactive">
+                <circle cx="12" cy="12" r="10" />
+                <polyline points="12 6 12 12 16 14" />
+              </svg>
+              <h1 className="title">WorkWise</h1>
+            </div>
+            <p className="subtitle">Activity Tracker</p>
+          </div>
+        </div>
+
+        <form onSubmit={handleLogin} className="login-card">
+          <div className="login-header">
+            <h2 className="login-title">Employee Portal</h2>
+            <p className="login-subtitle">Sign in using whitelisted work email</p>
+          </div>
+
+          <div className="form-group">
+            <label className="form-label">Work Email</label>
+            <input
+              type="email"
+              className="form-input"
+              placeholder="employee@workwise.com"
+              value={emailInput}
+              onChange={(e) => setEmailInput(e.target.value)}
+              required
+              disabled={isLoading}
+            />
+          </div>
+
+          <div className="form-group">
+            <label className="form-label">Password</label>
+            <input
+              type="password"
+              className="form-input"
+              placeholder="••••••••"
+              value={passwordInput}
+              onChange={(e) => setPasswordInput(e.target.value)}
+              required
+              disabled={isLoading}
+            />
+          </div>
+
+          {loginError && <div className="error-message">{loginError}</div>}
+
+          <button type="submit" className="login-btn" disabled={isLoading}>
+            {isLoading ? (
+              <span>Connecting...</span>
+            ) : (
+              <>
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2.5"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  style={{ width: 14, height: 14 }}>
+                  <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4" />
+                  <polyline points="10 17 15 12 10 7" />
+                  <line x1="15" y1="12" x2="3" y2="12" />
+                </svg>
+                <span>Log In</span>
+              </>
+            )}
+          </button>
+
+          <p className="login-hint">
+            Eligible: alice, bob, himanshu, or test @workwise.com
+            <br />
+            Testing password: <strong>workwise123</strong>
+          </p>
+        </form>
+
+        <div className="footer" style={{ marginTop: "12px" }}>WorkWise Tracker v0.0.1</div>
+      </div>
+    )
+  }
+
+  // If logged in, render the main Tracker Screen
   return (
     <div className="popup-container">
       <div className="header-container">
@@ -131,23 +294,47 @@ function IndexPopup() {
           </div>
           <p className="subtitle">Activity Tracker</p>
         </div>
-        <button
-          onClick={togglePower}
-          className={`power-btn ${status !== "inactive" ? "active" : ""}`}
-          title={status === "inactive" ? "Start Session" : "Stop Session"}>
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2.5"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            style={{ width: 18, height: 18 }}>
-            <path d="M18.36 6.64a9 9 0 1 1-12.73 0" />
-            <line x1="12" y1="2" x2="12" y2="12" />
-          </svg>
-        </button>
+        <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+          {userEmail && (
+            <div className="profile-section">
+              <span className="user-email-display" title={userEmail}>
+                {userEmail.split("@")[0]}
+              </span>
+              <button onClick={handleLogout} className="logout-btn" title="Log Out">
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2.5"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  style={{ width: 10, height: 10 }}>
+                  <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+                  <polyline points="16 17 21 12 16 7" />
+                  <line x1="21" y1="12" x2="9" y2="12" />
+                </svg>
+              </button>
+            </div>
+          )}
+          <button
+            onClick={togglePower}
+            className={`power-btn ${status !== "inactive" ? "active" : ""}`}
+            title={status === "inactive" ? "Start Session" : "Stop Session"}>
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              style={{ width: 18, height: 18 }}>
+              <path d="M18.36 6.64a9 9 0 1 1-12.73 0" />
+              <line x1="12" y1="2" x2="12" y2="12" />
+            </svg>
+          </button>
+        </div>
       </div>
 
       <div className={`status-card ${status}`}>

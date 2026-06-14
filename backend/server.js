@@ -15,9 +15,59 @@ if (!fs.existsSync(SCREENSHOTS_DIR)) {
 app.use(cors())
 app.use(express.json({ limit: "10mb" })) // Increase payload limit to handle image data
 
+// Whitelisted employee emails
+const ELIGIBLE_EMPLOYEES = [
+  "alice@workwise.com",
+  "bob@workwise.com",
+  "himanshu@workwise.com",
+  "test@workwise.com"
+]
+
+// Mock token parsing utility
+function decodeMockToken(token) {
+  if (!token || !token.startsWith("Bearer ")) return null
+  const tokenStr = token.substring(7) // Remove 'Bearer '
+  try {
+    const parts = tokenStr.split(".")
+    if (parts.length === 3) {
+      const payloadJson = Buffer.from(parts[1], "base64").toString("utf8")
+      return JSON.parse(payloadJson)
+    }
+  } catch (e) {
+    return null
+  }
+  return null
+}
+
 // Health check endpoint
 app.get("/health", (req, res) => {
   res.json({ status: "ok" })
+})
+
+// Endpoint for user login
+app.post("/api/login", (req, res) => {
+  const { email, password } = req.body
+
+  if (!email) {
+    return res.status(400).json({ error: "Email is required" })
+  }
+  if (password !== "workwise123") {
+    return res.status(401).json({ error: "Invalid password. Use 'workwise123' for testing." })
+  }
+
+  const normalizedEmail = email.toLowerCase().trim()
+  if (!ELIGIBLE_EMPLOYEES.includes(normalizedEmail)) {
+    return res.status(403).json({ error: "Forbidden: Your email is not whitelisted." })
+  }
+
+  // Generate mock JWT token: mock-header.payloadBase64.mock-signature
+  const payload = { email: normalizedEmail, timestamp: Date.now() }
+  const base64Payload = Buffer.from(JSON.stringify(payload)).toString("base64")
+  const token = `mock-header.${base64Payload}.mock-signature`
+
+  console.log(`\n\x1b[32m🔑 User logged in successfully: ${normalizedEmail}\x1b[0m\n`)
+
+  res.json({ token, email: normalizedEmail })
 })
 
 // Helper to format milliseconds into human-readable duration
@@ -37,8 +87,21 @@ function formatDuration(ms) {
 
 // Endpoint to receive activity data from the extension
 app.post("/api/activity", (req, res) => {
-  const { eventType, url, title, timestamp, metadata } = req.body
+  const authHeader = req.headers.authorization
+  const decoded = decodeMockToken(authHeader)
 
+  if (!decoded || !decoded.email) {
+    console.log(`\x1b[31m⚠️  Unauthorized activity attempt: Missing or invalid token.\x1b[0m`)
+    return res.status(401).json({ error: "Unauthorized: Missing or invalid token." })
+  }
+
+  const employeeEmail = decoded.email.toLowerCase().trim()
+  if (!ELIGIBLE_EMPLOYEES.includes(employeeEmail)) {
+    console.log(`\x1b[31m⚠️  Forbidden activity attempt: ${employeeEmail} is not whitelisted.\x1b[0m`)
+    return res.status(403).json({ error: "Forbidden: Employee is not whitelisted." })
+  }
+
+  const { eventType, url, title, timestamp, metadata } = req.body
   const timeStr = new Date(timestamp).toLocaleTimeString()
   
   // Style console outputs using ANSI escape codes for readability
@@ -53,7 +116,7 @@ app.post("/api/activity", (req, res) => {
 
   if (eventType === "SESSION_STOPPED") {
     console.log(`\n${bold}${red}============================================================${reset}`)
-    console.log(`${bold}${red}🛑 SESSION STOPPED [${timeStr}]${reset}`)
+    console.log(`${bold}${red}🛑 SESSION STOPPED [${timeStr}] - User: ${employeeEmail}${reset}`)
     console.log(`${bold}Summary Report:${reset}`)
     console.log(`  • ${bold}Total Session Duration:${reset}  ${formatDuration(metadata.totalSessionTimeMs)}`)
     console.log(`  • ${bold}Actual Working Time:${reset}     ${cyan}${formatDuration(metadata.totalActiveTimeMs)}${reset}`)
@@ -71,11 +134,11 @@ app.post("/api/activity", (req, res) => {
     console.log(`${bold}${red}============================================================${reset}\n`)
   } else if (eventType === "SESSION_STARTED") {
     console.log(`\n${bold}${green}============================================================${reset}`)
-    console.log(`${bold}${green}🚀 SESSION STARTED [${timeStr}]${reset}`)
+    console.log(`${bold}${green}🚀 SESSION STARTED [${timeStr}] - User: ${employeeEmail}${reset}`)
     console.log(`  Tracking activated. Listening to browser events...`)
     console.log(`${bold}${green}============================================================${reset}\n`)
   } else if (eventType === "SCREENSHOT_CAPTURED") {
-    console.log(`\n${bold}[${timeStr}] EVENT: SCREENSHOT_CAPTURED${reset}`)
+    console.log(`\n${bold}[${timeStr}] EVENT: SCREENSHOT_CAPTURED - User: ${employeeEmail}${reset}`)
     try {
       const base64Data = metadata.image.replace(/^data:image\/jpeg;base64,/, "")
       const buffer = Buffer.from(base64Data, "base64")
@@ -91,7 +154,8 @@ app.post("/api/activity", (req, res) => {
       const timeStrFormatted = now.toTimeString().split(" ")[0].replace(/:/g, "-") // HH-MM-SS
       const ms = String(now.getMilliseconds()).padStart(3, "0")
       
-      const filename = `${cleanTitle}_${dateStr}_${timeStrFormatted}-${ms}.jpg`
+      const cleanEmail = employeeEmail.replace(/[^a-zA-Z0-9]/g, "_")
+      const filename = `${cleanEmail}_${cleanTitle}_${dateStr}_${timeStrFormatted}-${ms}.jpg`
       const filepath = path.join(SCREENSHOTS_DIR, filename)
       
       fs.writeFileSync(filepath, buffer)
@@ -102,7 +166,7 @@ app.post("/api/activity", (req, res) => {
     console.log(`${gray}------------------------------------------------------------${reset}`)
   } else {
     // Normal activity event logging
-    console.log(`\n${bold}[${timeStr}] EVENT: ${eventType}${reset}`)
+    console.log(`\n${bold}[${timeStr}] EVENT: ${eventType} - User: ${employeeEmail}${reset}`)
     
     if (url) {
       console.log(`  ${green}URL:${reset}   ${url}`)
