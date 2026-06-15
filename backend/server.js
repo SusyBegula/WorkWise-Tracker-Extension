@@ -101,9 +101,9 @@ app.post("/api/activity", (req, res) => {
     return res.status(403).json({ error: "Forbidden: Employee is not whitelisted." })
   }
 
-  const { eventType, url, title, timestamp, metadata } = req.body
-  const timeStr = new Date(timestamp).toLocaleTimeString()
-  
+  // Handle both batched array payloads and single event objects
+  const events = Array.isArray(req.body) ? req.body : [req.body]
+
   // Style console outputs using ANSI escape codes for readability
   const blue = "\x1b[34m"
   const green = "\x1b[32m"
@@ -114,74 +114,79 @@ app.post("/api/activity", (req, res) => {
   const bold = "\x1b[1m"
   const gray = "\x1b[90m"
 
-  if (eventType === "SESSION_STOPPED") {
-    console.log(`\n${bold}${red}============================================================${reset}`)
-    console.log(`${bold}${red}🛑 SESSION STOPPED [${timeStr}] - User: ${employeeEmail}${reset}`)
-    console.log(`${bold}Summary Report:${reset}`)
-    console.log(`  • ${bold}Total Session Duration:${reset}  ${formatDuration(metadata.totalSessionTimeMs)}`)
-    console.log(`  • ${bold}Actual Working Time:${reset}     ${cyan}${formatDuration(metadata.totalActiveTimeMs)}${reset}`)
-    console.log(`  • ${bold}Total Paused Duration:${reset}   ${yellow}${formatDuration(metadata.totalPausedTimeMs)}${reset}`)
-    console.log(`  • ${bold}Total Pauses:${reset}             ${metadata.pauseCount}`)
-    console.log(`  • ${bold}Total Events Captured:${reset}   ${green}${metadata.totalEvents}${reset}`)
-    
-    if (metadata.pauseHistory && metadata.pauseHistory.length > 0) {
-      console.log(`\n  ${bold}Pause Breakdown:${reset}`)
-      metadata.pauseHistory.forEach((pause, idx) => {
-        const pauseTime = new Date(pause.pausedAt).toLocaleTimeString()
-        console.log(`    ${gray}[#${idx + 1}] Paused at ${pauseTime} for ${formatDuration(pause.durationMs)}${reset}`)
-      })
-    }
-    console.log(`${bold}${red}============================================================${reset}\n`)
-  } else if (eventType === "SESSION_STARTED") {
-    console.log(`\n${bold}${green}============================================================${reset}`)
-    console.log(`${bold}${green}🚀 SESSION STARTED [${timeStr}] - User: ${employeeEmail}${reset}`)
-    console.log(`  Tracking activated. Listening to browser events...`)
-    console.log(`${bold}${green}============================================================${reset}\n`)
-  } else if (eventType === "SCREENSHOT_CAPTURED") {
-    console.log(`\n${bold}[${timeStr}] EVENT: SCREENSHOT_CAPTURED - User: ${employeeEmail}${reset}`)
-    try {
-      const base64Data = metadata.image.replace(/^data:image\/jpeg;base64,/, "")
-      const buffer = Buffer.from(base64Data, "base64")
-      
-      // Sanitize tab title to make it safe for file systems
-      const cleanTitle = title
-        ? title.replace(/[^a-zA-Z0-9\s-_]/g, "").trim().substring(0, 50).replace(/\s+/g, "_")
-        : "unknown"
+  for (const event of events) {
+    const { eventType, url, title, timestamp, metadata } = event
+    const timeStr = new Date(timestamp).toLocaleTimeString()
 
-      // Format date, time, and milliseconds for uniqueness
-      const now = new Date()
-      const dateStr = now.toISOString().split("T")[0] // YYYY-MM-DD
-      const timeStrFormatted = now.toTimeString().split(" ")[0].replace(/:/g, "-") // HH-MM-SS
-      const ms = String(now.getMilliseconds()).padStart(3, "0")
+    if (eventType === "SESSION_STOPPED") {
+      console.log(`\n${bold}${red}============================================================${reset}`)
+      console.log(`${bold}${red}🛑 SESSION STOPPED [${timeStr}] - User: ${employeeEmail}${reset}`)
+      console.log(`${bold}Summary Report:${reset}`)
+      console.log(`  • ${bold}Total Session Duration:${reset}  ${formatDuration(metadata.totalSessionTimeMs)}`)
+      console.log(`  • ${bold}Actual Working Time:${reset}     ${cyan}${formatDuration(metadata.totalActiveTimeMs)}${reset}`)
+      console.log(`  • ${bold}Total Paused Duration:${reset}   ${yellow}${formatDuration(metadata.totalPausedTimeMs)}${reset}`)
+      console.log(`  • ${bold}Total Pauses:${reset}             ${metadata.pauseCount}`)
+      console.log(`  • ${bold}Total Events Captured:${reset}   ${green}${metadata.totalEvents}${reset}`)
       
-      const cleanEmail = employeeEmail.replace(/[^a-zA-Z0-9]/g, "_")
-      const filename = `${cleanEmail}_${cleanTitle}_${dateStr}_${timeStrFormatted}-${ms}.jpg`
-      const filepath = path.join(SCREENSHOTS_DIR, filename)
-      
-      fs.writeFileSync(filepath, buffer)
-      console.log(`  ${green}Saved to:${reset} ${filepath}`)
-    } catch (err) {
-      console.error("  Failed to save screenshot:", err)
-    }
-    console.log(`${gray}------------------------------------------------------------${reset}`)
-  } else {
-    // Normal activity event logging
-    console.log(`\n${bold}[${timeStr}] EVENT: ${eventType} - User: ${employeeEmail}${reset}`)
-    
-    if (url) {
-      console.log(`  ${green}URL:${reset}   ${url}`)
-    }
-    if (title) {
-      console.log(`  ${blue}Title:${reset} ${title}`)
-    }
-    if (metadata && Object.keys(metadata).length > 0) {
-      const printMetadata = { ...metadata }
-      if (printMetadata.image) {
-        printMetadata.image = "[Base64 Image Data]"
+      if (metadata.pauseHistory && metadata.pauseHistory.length > 0) {
+        console.log(`\n  ${bold}Pause Breakdown:${reset}`)
+        metadata.pauseHistory.forEach((pause, idx) => {
+          const pauseTime = new Date(pause.pausedAt).toLocaleTimeString()
+          console.log(`    ${gray}[#${idx + 1}] Paused at ${pauseTime} for ${formatDuration(pause.durationMs)}${reset}`)
+        })
       }
-      console.log(`  ${yellow}Data:${reset}  ${JSON.stringify(printMetadata, null, 2).replace(/\n/g, "\n  ")}`)
+      console.log(`${bold}${red}============================================================${reset}\n`)
+    } else if (eventType === "SESSION_STARTED") {
+      console.log(`\n${bold}${green}============================================================${reset}`)
+      console.log(`${bold}${green}🚀 SESSION STARTED [${timeStr}] - User: ${employeeEmail}${reset}`)
+      console.log(`  Tracking activated. Listening to browser events...`)
+      console.log(`${bold}${green}============================================================${reset}\n`)
+    } else if (eventType === "SCREENSHOT_CAPTURED") {
+      console.log(`\n${bold}[${timeStr}] EVENT: SCREENSHOT_CAPTURED - User: ${employeeEmail}${reset}`)
+      try {
+        const base64Data = metadata.image.replace(/^data:image\/jpeg;base64,/, "")
+        const buffer = Buffer.from(base64Data, "base64")
+        
+        // Sanitize tab title to make it safe for file systems
+        const cleanTitle = title
+          ? title.replace(/[^a-zA-Z0-9\s-_]/g, "").trim().substring(0, 50).replace(/\s+/g, "_")
+          : "unknown"
+
+        // Format date, time, and milliseconds for uniqueness
+        const now = new Date()
+        const dateStr = now.toISOString().split("T")[0] // YYYY-MM-DD
+        const timeStrFormatted = now.toTimeString().split(" ")[0].replace(/:/g, "-") // HH-MM-SS
+        const ms = String(now.getMilliseconds()).padStart(3, "0")
+        
+        const cleanEmail = employeeEmail.replace(/[^a-zA-Z0-9]/g, "_")
+        const filename = `${cleanEmail}_${cleanTitle}_${dateStr}_${timeStrFormatted}-${ms}.jpg`
+        const filepath = path.join(SCREENSHOTS_DIR, filename)
+        
+        fs.writeFileSync(filepath, buffer)
+        console.log(`  ${green}Saved to:${reset} ${filepath}`)
+      } catch (err) {
+        console.error("  Failed to save screenshot:", err)
+      }
+      console.log(`${gray}------------------------------------------------------------${reset}`)
+    } else {
+      // Normal activity event logging
+      console.log(`\n${bold}[${timeStr}] EVENT: ${eventType} - User: ${employeeEmail}${reset}`)
+      
+      if (url) {
+        console.log(`  ${green}URL:${reset}   ${url}`)
+      }
+      if (title) {
+        console.log(`  ${blue}Title:${reset} ${title}`)
+      }
+      if (metadata && Object.keys(metadata).length > 0) {
+        const printMetadata = { ...metadata }
+        if (printMetadata.image) {
+          printMetadata.image = "[Base64 Image Data]"
+        }
+        console.log(`  ${yellow}Data:${reset}  ${JSON.stringify(printMetadata, null, 2).replace(/\n/g, "\n  ")}`)
+      }
+      console.log(`${gray}------------------------------------------------------------${reset}`)
     }
-    console.log(`${gray}------------------------------------------------------------${reset}`)
   }
 
   res.status(200).json({ success: true })

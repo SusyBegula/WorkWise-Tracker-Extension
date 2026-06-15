@@ -32,3 +32,9 @@ dist/
 
 # typescript
 .tsbuildinfo
+
+# memory
+.memory/
+
+#screenshots
+backend/screenshots/

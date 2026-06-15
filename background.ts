@@ -2,35 +2,53 @@ const BACKEND_URL = "http://localhost:3000/api/activity"
 const SCREENSHOT_ALARM_NAME = "workwise-screenshot-alarm"
 const SCREENSHOT_INTERVAL_MINUTES = 1.0 // 1.0 minutes for testing; user can set to 15.0
 
-// Raw helper to send events to the backend logger without state checking
-async function logActivityRaw(
-  eventType: string,
-  url: string | null = null,
-  title: string | null = null,
-  metadata: any = {}
-) {
-  const payload = {
-    eventType,
-    url,
-    title,
-    timestamp: new Date().toISOString(),
-    metadata
-  }
+// Event Buffering Settings
+const FLUSH_ALARM_NAME = "workwise-flush-alarm"
+const FLUSH_INTERVAL_MINUTES = 0.5 // Flush every 30 seconds
 
-  console.log(`[Activity Tracker] Sending ${eventType}:`, {
-    ...payload,
-    metadata: {
-      ...metadata,
-      image: metadata.image ? "[Base64 Image Data]" : undefined
-    }
-  })
+// Re-register alarms on startup/service worker wakeup if the session was active
+async function restoreSessionAlarms() {
+  if (typeof chrome === "undefined" || !chrome.storage || !chrome.storage.local) return
+
+  const data = await chrome.storage.local.get(["sessionStatus"])
+  if (data.sessionStatus === "active") {
+    console.log("[Activity Tracker] Active session detected on startup. Restoring alarms...")
+    
+    chrome.alarms.get(SCREENSHOT_ALARM_NAME, (alarm) => {
+      if (!alarm) {
+        chrome.alarms.create(SCREENSHOT_ALARM_NAME, { periodInMinutes: SCREENSHOT_INTERVAL_MINUTES })
+        console.log(`[Activity Tracker] Re-registered missing screenshot alarm after startup.`)
+      }
+    })
+
+    chrome.alarms.get(FLUSH_ALARM_NAME, (alarm) => {
+      if (!alarm) {
+        chrome.alarms.create(FLUSH_ALARM_NAME, { periodInMinutes: FLUSH_INTERVAL_MINUTES })
+        console.log(`[Activity Tracker] Re-registered missing flush alarm after startup.`)
+      }
+    })
+  }
+}
+
+// Run restoration routine on service worker initialization
+restoreSessionAlarms()
+
+// Flushes all buffered events stored in chrome.storage.local
+async function flushBufferedEvents() {
+  if (typeof chrome === "undefined" || !chrome.storage || !chrome.storage.local) return
+
+  const data = await chrome.storage.local.get(["bufferedEvents"])
+  const events = data.bufferedEvents || []
+  if (events.length === 0) return
+
+  // Clear buffer in storage first to prevent duplicate sends
+  await chrome.storage.local.set({ bufferedEvents: [] })
+  console.log(`[Activity Tracker] Flushing ${events.length} buffered events...`)
 
   try {
     let token = ""
-    if (typeof chrome !== "undefined" && chrome.storage && chrome.storage.local) {
-      const data = await chrome.storage.local.get("token")
-      token = data.token || ""
-    }
+    const authData = await chrome.storage.local.get("token")
+    token = authData.token || ""
 
     const headers: any = {
       "Content-Type": "application/json"
@@ -42,24 +60,56 @@ async function logActivityRaw(
     const response = await fetch(BACKEND_URL, {
       method: "POST",
       headers,
-      body: JSON.stringify(payload)
+      body: JSON.stringify(events)
     })
 
     if (!response.ok) {
-      console.warn(`[Activity Tracker] Failed to send log. Server responded with status: ${response.status}`)
+      console.warn(`[Activity Tracker] Failed to send event batch. Server responded with status: ${response.status}`)
       
       // Auto logout/stop session if token becomes invalid (unauthorized)
       if (response.status === 401 || response.status === 403) {
         console.warn(`[Activity Tracker] Auth failed (${response.status}). Force-stopping active session.`)
         await transitionSessionState("inactive")
+      } else {
+        // Put events back in buffer on server error
+        const curData = await chrome.storage.local.get("bufferedEvents")
+        const curEvents = curData.bufferedEvents || []
+        await chrome.storage.local.set({ bufferedEvents: [...events, ...curEvents] })
       }
     }
   } catch (error) {
-    console.error("[Activity Tracker] Network error connecting to backend logger:", error)
+    console.error("[Activity Tracker] Network error connecting to backend logger, re-buffering events:", error)
+    // Put events back in buffer on network error
+    const curData = await chrome.storage.local.get("bufferedEvents")
+    const curEvents = curData.bufferedEvents || []
+    await chrome.storage.local.set({ bufferedEvents: [...events, ...curEvents] })
   }
 }
 
-// State-aware helper to send events to the backend logger
+// Send a single event immediately along with any existing buffered events
+async function logActivityImmediate(
+  eventType: string,
+  url: string | null = null,
+  title: string | null = null,
+  metadata: any = {}
+) {
+  const newEvent = {
+    eventType,
+    url,
+    title,
+    timestamp: new Date().toISOString(),
+    metadata
+  }
+
+  if (typeof chrome !== "undefined" && chrome.storage && chrome.storage.local) {
+    const data = await chrome.storage.local.get("bufferedEvents")
+    const currentBuffer = data.bufferedEvents || []
+    await chrome.storage.local.set({ bufferedEvents: [...currentBuffer, newEvent] })
+    await flushBufferedEvents()
+  }
+}
+
+// State-aware helper to buffer standard events
 async function logActivity(
   eventType: string,
   url: string | null = null,
@@ -67,7 +117,7 @@ async function logActivity(
   metadata: any = {}
 ) {
   if (typeof chrome !== "undefined" && chrome.storage && chrome.storage.local) {
-    const result = await chrome.storage.local.get(["sessionStatus", "eventCount"])
+    const result = await chrome.storage.local.get(["sessionStatus", "eventCount", "bufferedEvents"])
     
     // Only capture events if the session is ACTIVE
     if (result.sessionStatus !== "active") {
@@ -78,10 +128,41 @@ async function logActivity(
     // Increment event count
     const currentCount = result.eventCount || 0
     const newCount = currentCount + 1
-    await chrome.storage.local.set({ eventCount: newCount })
     
-    // Send event
-    await logActivityRaw(eventType, url, title, metadata)
+    const newEvent = {
+      eventType,
+      url,
+      title,
+      timestamp: new Date().toISOString(),
+      metadata
+    }
+
+    const currentBuffer = result.bufferedEvents || []
+    const newBuffer = [...currentBuffer, newEvent]
+    
+    await chrome.storage.local.set({ 
+      eventCount: newCount,
+      bufferedEvents: newBuffer
+    })
+
+    // Flush immediately if buffer reaches capacity (30 events)
+    if (newBuffer.length >= 30) {
+      console.log("[Activity Tracker] Buffer limit reached. Flushing now.")
+      await flushBufferedEvents()
+    }
+  }
+}
+
+const BLOCKED_DOMAINS = ["whatsapp.com", "instagram.com"]
+function isBlockedUrl(url: string | null): boolean {
+  if (!url) return false
+  try {
+    const parsedUrl = new URL(url)
+    const host = parsedUrl.hostname.toLowerCase()
+    return BLOCKED_DOMAINS.some(domain => host === domain || host.endsWith("." + domain))
+  } catch (e) {
+    const lowerUrl = url.toLowerCase()
+    return BLOCKED_DOMAINS.some(domain => lowerUrl.includes(domain))
   }
 }
 
@@ -118,6 +199,12 @@ async function captureAndSendScreenshot() {
         tabUrl = tabs[0].url || null
       }
 
+      // Check if URL is blocklisted for privacy
+      if (isBlockedUrl(tabUrl)) {
+        console.log(`[Activity Tracker] Screenshot skipped: Active tab URL is blocklisted for privacy.`)
+        return
+      }
+
       chrome.tabs.captureVisibleTab(
         normalWindow.id,
         { format: "jpeg", quality: 40 },
@@ -128,7 +215,7 @@ async function captureAndSendScreenshot() {
           }
           if (dataUrl) {
             console.log("[Activity Tracker] Screenshot captured successfully. Sending to backend...")
-            logActivityRaw("SCREENSHOT_CAPTURED", tabUrl, tabTitle, { image: dataUrl })
+            logActivityImmediate("SCREENSHOT_CAPTURED", tabUrl, tabTitle, { image: dataUrl })
           }
         }
       )
@@ -180,20 +267,27 @@ async function transitionSessionState(nextStatus: "inactive" | "active" | "pause
         accumulatedPauseTime,
         pauseCount,
         pauseHistory,
-        eventCount
+        eventCount,
+        bufferedEvents: []
       })
 
-      // Clear any existing alarms to reset state, then schedule a new periodic alarm
+      // Setup periodic screenshot alarm
       chrome.alarms.clear(SCREENSHOT_ALARM_NAME, () => {
         chrome.alarms.create(SCREENSHOT_ALARM_NAME, { periodInMinutes: SCREENSHOT_INTERVAL_MINUTES })
         console.log(`[Activity Tracker] Scheduled screenshot alarm: ${SCREENSHOT_ALARM_NAME} every ${SCREENSHOT_INTERVAL_MINUTES} min.`)
       })
 
+      // Setup periodic flush alarm
+      chrome.alarms.clear(FLUSH_ALARM_NAME, () => {
+        chrome.alarms.create(FLUSH_ALARM_NAME, { periodInMinutes: FLUSH_INTERVAL_MINUTES })
+        console.log(`[Activity Tracker] Scheduled flush alarm: ${FLUSH_ALARM_NAME} every ${FLUSH_INTERVAL_MINUTES} min.`)
+      })
+
       // Capture a screenshot immediately on session start (after 2 seconds delay)
       setTimeout(captureAndSendScreenshot, 2000)
 
-      // Send start event to backend
-      await logActivityRaw("SESSION_STARTED", null, null, {})
+      // Send start event to backend immediately
+      await logActivityImmediate("SESSION_STARTED", null, null, {})
     } else if (currentStatus === "paused") {
       // Resume from paused
       const pauseDuration = now - lastStateTransitionTime
@@ -212,16 +306,21 @@ async function transitionSessionState(nextStatus: "inactive" | "active" | "pause
         pauseHistory
       })
 
-      // Clear any existing alarms to reset state, then schedule a new periodic alarm
+      // Re-initialize alarms
       chrome.alarms.clear(SCREENSHOT_ALARM_NAME, () => {
         chrome.alarms.create(SCREENSHOT_ALARM_NAME, { periodInMinutes: SCREENSHOT_INTERVAL_MINUTES })
         console.log(`[Activity Tracker] Rescheduled screenshot alarm: ${SCREENSHOT_ALARM_NAME} every ${SCREENSHOT_INTERVAL_MINUTES} min.`)
       })
 
+      chrome.alarms.clear(FLUSH_ALARM_NAME, () => {
+        chrome.alarms.create(FLUSH_ALARM_NAME, { periodInMinutes: FLUSH_INTERVAL_MINUTES })
+        console.log(`[Activity Tracker] Rescheduled flush alarm: ${FLUSH_ALARM_NAME} every ${FLUSH_INTERVAL_MINUTES} min.`)
+      })
+
       // Capture a screenshot immediately on resume (after 2 seconds delay)
       setTimeout(captureAndSendScreenshot, 2000)
 
-      await logActivityRaw("SESSION_RESUMED", null, null, {
+      await logActivityImmediate("SESSION_RESUMED", null, null, {
         pauseDurationMs: pauseDuration
       })
     }
@@ -238,10 +337,12 @@ async function transitionSessionState(nextStatus: "inactive" | "active" | "pause
         pauseCount: pauseCount + 1
       })
 
-      // Disable screenshot alarms
+      // Disable screenshot and flush alarms
       chrome.alarms.clear(SCREENSHOT_ALARM_NAME)
+      chrome.alarms.clear(FLUSH_ALARM_NAME)
 
-      await logActivityRaw("SESSION_PAUSED", null, null, {
+      // Send pause event immediately (and flush any pending interaction logs)
+      await logActivityImmediate("SESSION_PAUSED", null, null, {
         activeDurationMs: activeDuration
       })
     }
@@ -264,8 +365,12 @@ async function transitionSessionState(nextStatus: "inactive" | "active" | "pause
 
     const totalSessionTime = now - sessionStartTime
 
-    // Disable screenshot alarms
+    // Disable screenshot and flush alarms
     chrome.alarms.clear(SCREENSHOT_ALARM_NAME)
+    chrome.alarms.clear(FLUSH_ALARM_NAME)
+
+    // Flush any remaining active logs before resetting storage
+    await flushBufferedEvents()
 
     // Reset storage status
     await chrome.storage.local.set({
@@ -276,11 +381,13 @@ async function transitionSessionState(nextStatus: "inactive" | "active" | "pause
       accumulatedPauseTime: 0,
       pauseCount: 0,
       pauseHistory: [],
-      eventCount: 0
+      eventCount: 0,
+      bufferedEvents: [],
+      encordEmail: null
     })
 
-    // Send summary stop event to backend
-    await logActivityRaw("SESSION_STOPPED", null, null, {
+    // Send summary stop event immediately
+    await logActivityImmediate("SESSION_STOPPED", null, null, {
       totalSessionTimeMs: totalSessionTime,
       totalActiveTimeMs: finalActiveTime,
       totalPausedTimeMs: finalPauseTime,
@@ -359,17 +466,22 @@ chrome.idle.onStateChanged.addListener(async (newState) => {
   })
 })
 
-// Listen for screenshot alarms
+// Listen for alarms
 chrome.alarms.onAlarm.addListener((alarm) => {
   console.log(`[Activity Tracker] Alarm event received: ${alarm.name}`)
   if (alarm.name === SCREENSHOT_ALARM_NAME) {
     captureAndSendScreenshot()
+  } else if (alarm.name === FLUSH_ALARM_NAME) {
+    flushBufferedEvents()
   }
 })
 
 // Listen for messages from content scripts or popup UI
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === "PAGE_EVENT") {
+    if (message.eventType === "ENCORD_EMAIL_CAPTURED" && message.metadata && message.metadata.email) {
+      chrome.storage.local.set({ encordEmail: message.metadata.email })
+    }
     logActivity(message.eventType, message.url, message.title, message.metadata)
   } else if (message.type === "TRANSITION_STATE") {
     transitionSessionState(message.nextStatus).then(() => {
@@ -389,7 +501,9 @@ chrome.runtime.onInstalled.addListener(() => {
     accumulatedPauseTime: 0,
     pauseCount: 0,
     pauseHistory: [],
-    eventCount: 0
+    eventCount: 0,
+    bufferedEvents: [],
+    encordEmail: null
   })
 })
 
