@@ -13,6 +13,7 @@ backend/node_modules
 # misc
 .DS_Store
 *.pem
+backend/.env
 
 # debug
 npm-debug.log*
@@ -36,5 +37,8 @@ dist/
 # memory
 .memory/
 
-#screenshots
+# screenshots
 backend/screenshots/
+
+# test
+backend/test

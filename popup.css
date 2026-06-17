@@ -433,7 +433,7 @@ body {
   font-size: 10px;
   font-weight: 600;
   color: var(--text-primary);
-  max-width: 100px;
+  max-width: 120px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;

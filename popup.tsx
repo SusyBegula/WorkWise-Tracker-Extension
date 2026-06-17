@@ -14,6 +14,7 @@ function IndexPopup() {
   // Auth States
   const [token, setToken] = useState<string | null>(null)
   const [userEmail, setUserEmail] = useState<string | null>(null)
+  const [userName, setUserName] = useState<string | null>(null)
   const [emailInput, setEmailInput] = useState("")
   const [passwordInput, setPasswordInput] = useState("")
   const [loginError, setLoginError] = useState<string | null>(null)
@@ -31,7 +32,8 @@ function IndexPopup() {
           "pauseCount",
           "eventCount",
           "token",
-          "userEmail"
+          "userEmail",
+          "userName"
         ],
         (data) => {
           setStatus(data.sessionStatus || "inactive")
@@ -43,6 +45,7 @@ function IndexPopup() {
           setEventCount(data.eventCount || 0)
           setToken(data.token || null)
           setUserEmail(data.userEmail || null)
+          setUserName(data.userName || null)
         }
       )
     }
@@ -100,10 +103,12 @@ function IndexPopup() {
         if (typeof chrome !== "undefined" && chrome.storage && chrome.storage.local) {
           await chrome.storage.local.set({
             token: data.token,
-            userEmail: data.email
+            userEmail: data.email,
+            userName: data.name
           })
           setToken(data.token)
           setUserEmail(data.email)
+          setUserName(data.name)
         }
       }
     } catch (err) {
@@ -122,9 +127,10 @@ function IndexPopup() {
     }
 
     if (typeof chrome !== "undefined" && chrome.storage && chrome.storage.local) {
-      await chrome.storage.local.remove(["token", "userEmail"])
+      await chrome.storage.local.remove(["token", "userEmail", "userName"])
       setToken(null)
       setUserEmail(null)
+      setUserName(null)
       setEmailInput("")
       setPasswordInput("")
       setLoginError(null)
@@ -259,12 +265,6 @@ function IndexPopup() {
               </>
             )}
           </button>
-
-          <p className="login-hint">
-            Eligible: alice, bob, himanshu, or test @workwise.com
-            <br />
-            Testing password: <strong>workwise123</strong>
-          </p>
         </form>
 
         <div className="footer" style={{ marginTop: "12px" }}>WorkWise Tracker v0.0.1</div>
@@ -298,7 +298,7 @@ function IndexPopup() {
           {userEmail && (
             <div className="profile-section">
               <span className="user-email-display" title={userEmail}>
-                {userEmail.split("@")[0]}
+                {userName || userEmail.split("@")[0]}
               </span>
               <button onClick={handleLogout} className="logout-btn" title="Log Out">
                 <svg
