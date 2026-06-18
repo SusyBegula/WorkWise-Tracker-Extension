@@ -5,3 +5,4 @@ allowBuilds:
   lmdb: true
   msgpackr-extract: true
   sharp: true
+  sqlite3: true

@@ -5,6 +5,7 @@ import path from "path"
 import dotenv from "dotenv"
 import pg from "pg"
 import bcrypt from "bcryptjs"
+import sqlite3 from "sqlite3"
 import { fileURLToPath } from "url"
 
 const __filename = fileURLToPath(import.meta.url)
@@ -35,6 +36,72 @@ const pool = new Pool({
 pool.on("error", (err) => {
   console.error("Unexpected error on idle database client", err)
 })
+
+// Setup local SQLite Database for telemetry logs
+const SQLITE_DB_PATH = path.join(__dirname, "..", "shared-telemetry.db")
+const db = new sqlite3.Database(SQLITE_DB_PATH, (err) => {
+  if (err) {
+    console.error("Failed to connect to SQLite database:", err)
+  } else {
+    console.log(`Connected to local SQLite database: ${SQLITE_DB_PATH}`)
+    initializeSQLiteTables()
+  }
+})
+
+// Initialize local SQLite tables for telemetry and screenshots
+function initializeSQLiteTables() {
+  db.serialize(() => {
+    db.run(`
+      CREATE TABLE IF NOT EXISTS activity_logs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        email TEXT,
+        event_type TEXT,
+        url TEXT,
+        title TEXT,
+        timestamp TEXT,
+        metadata TEXT
+      )
+    `)
+    db.run(`
+      CREATE TABLE IF NOT EXISTS screenshots (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        email TEXT,
+        url TEXT,
+        title TEXT,
+        timestamp TEXT,
+        filepath TEXT
+      )
+    `)
+    console.log("Local SQLite telemetry tables initialized successfully.")
+  })
+}
+
+// Helper to insert activity log into SQLite
+function logToSQLite(email, eventType, url, title, timestamp, metadata) {
+  const query = `
+    INSERT INTO activity_logs (email, event_type, url, title, timestamp, metadata)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `
+  const metadataStr = metadata ? JSON.stringify(metadata) : null
+  db.run(query, [email, eventType, url, title, timestamp, metadataStr], function (err) {
+    if (err) {
+      console.error("Failed to write activity log to local SQLite:", err)
+    }
+  })
+}
+
+// Helper to insert screenshot metadata into SQLite
+function logScreenshotToSQLite(email, url, title, timestamp, filepath) {
+  const query = `
+    INSERT INTO screenshots (email, url, title, timestamp, filepath)
+    VALUES (?, ?, ?, ?, ?)
+  `
+  db.run(query, [email, url, title, timestamp, filepath], function (err) {
+    if (err) {
+      console.error("Failed to write screenshot metadata to local SQLite:", err)
+    }
+  })
+}
 
 // Database helper to check if email exists
 async function emailExists(email) {
@@ -169,6 +236,15 @@ app.post("/api/activity", async (req, res) => {
     const { eventType, url, title, timestamp, metadata } = event
     const timeStr = new Date(timestamp).toLocaleTimeString()
 
+    // Write all events to SQLite (stripping base64 image data for screenshots to keep logs lightweight)
+    if (eventType === "SCREENSHOT_CAPTURED") {
+      const cleanMetadata = { ...metadata }
+      delete cleanMetadata.image
+      logToSQLite(employeeEmail, eventType, url, title, timestamp, cleanMetadata)
+    } else {
+      logToSQLite(employeeEmail, eventType, url, title, timestamp, metadata)
+    }
+
     if (eventType === "SESSION_STOPPED") {
       console.log(`\n${bold}${red}============================================================${reset}`)
       console.log(`${bold}${red}🛑 SESSION STOPPED [${timeStr}] - User: ${employeeEmail}${reset}`)
@@ -215,6 +291,9 @@ app.post("/api/activity", async (req, res) => {
         
         fs.writeFileSync(filepath, buffer)
         console.log(`  ${green}Saved to:${reset} ${filepath}`)
+
+        // Write screenshot record to SQLite
+        logScreenshotToSQLite(employeeEmail, url, title, timestamp, filepath)
       } catch (err) {
         console.error("  Failed to save screenshot:", err)
       }
