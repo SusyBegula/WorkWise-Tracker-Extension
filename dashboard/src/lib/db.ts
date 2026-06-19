@@ -43,10 +43,24 @@ export const sqliteDb = new sqlite3.Database(
             filepath TEXT
           )
         `)
+        sqliteDb.run(`
+          CREATE TABLE IF NOT EXISTS task_events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            email TEXT NOT NULL,
+            event_type TEXT NOT NULL,
+            project_id TEXT,
+            data_id TEXT,
+            url TEXT,
+            title TEXT,
+            timestamp TEXT NOT NULL,
+            metadata TEXT
+          )
+        `)
       })
     }
   }
 )
+
 
 export function querySQLite<T>(sql: string, params: any[] = []): Promise<T[]> {
   return new Promise((resolve, reject) => {
