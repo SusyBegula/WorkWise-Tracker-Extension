@@ -72,9 +72,30 @@ function initializeSQLiteTables() {
         filepath TEXT
       )
     `)
+    // Dedicated task lifecycle table for fast, indexed dashboard queries
+    db.run(`
+      CREATE TABLE IF NOT EXISTS task_events (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        email TEXT NOT NULL,
+        event_type TEXT NOT NULL,
+        project_id TEXT,
+        data_id TEXT,
+        url TEXT,
+        title TEXT,
+        timestamp TEXT NOT NULL,
+        metadata TEXT
+      )
+    `)
+    // Index for common dashboard queries
+    db.run(`CREATE INDEX IF NOT EXISTS idx_task_events_email ON task_events (email)`)
+    db.run(`CREATE INDEX IF NOT EXISTS idx_task_events_type  ON task_events (event_type)`)
+    db.run(`CREATE INDEX IF NOT EXISTS idx_task_events_data  ON task_events (data_id)`)
+    db.run(`CREATE INDEX IF NOT EXISTS idx_activity_email    ON activity_logs (email)`)
+    db.run(`CREATE INDEX IF NOT EXISTS idx_activity_type     ON activity_logs (event_type)`)
     console.log("Local SQLite telemetry tables initialized successfully.")
   })
 }
+
 
 // Helper to insert activity log into SQLite
 function logToSQLite(email, eventType, url, title, timestamp, metadata) {
@@ -245,6 +266,24 @@ app.post("/api/activity", async (req, res) => {
       logToSQLite(employeeEmail, eventType, url, title, timestamp, metadata)
     }
 
+    // Write Encord task lifecycle events to the dedicated task_events table
+    const TASK_LIFECYCLE_EVENTS = ["TASK_STARTED", "TASK_COMPLETED", "TASK_SKIPPED", "TASK_EXITED"]
+    if (TASK_LIFECYCLE_EVENTS.includes(eventType)) {
+      const projectId = metadata?.projectId ?? null
+      const dataId = metadata?.dataId ?? null
+      const taskQuery = `
+        INSERT INTO task_events (email, event_type, project_id, data_id, url, title, timestamp, metadata)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `
+      db.run(taskQuery, [
+        employeeEmail, eventType, projectId, dataId, url, title, timestamp,
+        metadata ? JSON.stringify(metadata) : null
+      ], function (err) {
+        if (err) console.error("Failed to write task event to SQLite:", err)
+      })
+    }
+
+
     if (eventType === "SESSION_STOPPED") {
       console.log(`\n${bold}${red}============================================================${reset}`)
       console.log(`${bold}${red}🛑 SESSION STOPPED [${timeStr}] - User: ${employeeEmail}${reset}`)
@@ -298,7 +337,24 @@ app.post("/api/activity", async (req, res) => {
         console.error("  Failed to save screenshot:", err)
       }
       console.log(`${gray}------------------------------------------------------------${reset}`)
+    } else if (TASK_LIFECYCLE_EVENTS.includes(eventType)) {
+      const icon = eventType === "TASK_STARTED" ? "▶️" :
+                   eventType === "TASK_COMPLETED" ? "✅" :
+                   eventType === "TASK_SKIPPED" ? "⏭️" : "🚪"
+      const color = eventType === "TASK_COMPLETED" ? green :
+                    eventType === "TASK_SKIPPED" ? yellow :
+                    eventType === "TASK_EXITED" ? red : cyan
+      console.log(`\n${bold}${color}${icon} TASK EVENT [${timeStr}]: ${eventType} - User: ${employeeEmail}${reset}`)
+      console.log(`  ${blue}Project:${reset} ${metadata?.projectId ?? "N/A"}`)
+      console.log(`  ${blue}Data ID:${reset} ${metadata?.dataId ?? "N/A"}`)
+      if (url) console.log(`  ${green}URL:${reset}     ${url}`)
+      console.log(`${gray}------------------------------------------------------------${reset}`)
+    } else if (eventType === "ENCORD_PAGE_VIEW") {
+      console.log(`\n${bold}${cyan}[${timeStr}] ENCORD_PAGE_VIEW - User: ${employeeEmail}${reset}`)
+      console.log(`  Category: ${metadata?.category ?? "unknown"}  |  URL: ${url}`)
+      console.log(`${gray}------------------------------------------------------------${reset}`)
     } else {
+
       // Normal activity event logging
       console.log(`\n${bold}[${timeStr}] EVENT: ${eventType} - User: ${employeeEmail}${reset}`)
       
