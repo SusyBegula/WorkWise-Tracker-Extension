@@ -17,11 +17,6 @@ dotenv.config({ path: path.join(__dirname, ".env") })
 const app = express()
 const PORT = process.env.PORT || 3000
 
-// Setup local screenshots directory
-const SCREENSHOTS_DIR = path.join(process.cwd(), "screenshots")
-if (!fs.existsSync(SCREENSHOTS_DIR)) {
-  fs.mkdirSync(SCREENSHOTS_DIR, { recursive: true })
-}
 
 app.use(cors())
 app.use(express.json({ limit: "10mb" })) // Increase payload limit to handle image data
@@ -48,7 +43,7 @@ const db = new sqlite3.Database(SQLITE_DB_PATH, (err) => {
   }
 })
 
-// Initialize local SQLite tables for telemetry and screenshots
+// Initialize local SQLite tables for telemetry
 function initializeSQLiteTables() {
   db.serialize(() => {
     db.run(`
@@ -60,16 +55,6 @@ function initializeSQLiteTables() {
         title TEXT,
         timestamp TEXT,
         metadata TEXT
-      )
-    `)
-    db.run(`
-      CREATE TABLE IF NOT EXISTS screenshots (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        email TEXT,
-        url TEXT,
-        title TEXT,
-        timestamp TEXT,
-        filepath TEXT
       )
     `)
     // Dedicated task lifecycle table for fast, indexed dashboard queries
@@ -111,18 +96,6 @@ function logToSQLite(email, eventType, url, title, timestamp, metadata) {
   })
 }
 
-// Helper to insert screenshot metadata into SQLite
-function logScreenshotToSQLite(email, url, title, timestamp, filepath) {
-  const query = `
-    INSERT INTO screenshots (email, url, title, timestamp, filepath)
-    VALUES (?, ?, ?, ?, ?)
-  `
-  db.run(query, [email, url, title, timestamp, filepath], function (err) {
-    if (err) {
-      console.error("Failed to write screenshot metadata to local SQLite:", err)
-    }
-  })
-}
 
 // Database helper to check if email exists
 async function emailExists(email) {
@@ -257,17 +230,12 @@ app.post("/api/activity", async (req, res) => {
     const { eventType, url, title, timestamp, metadata } = event
     const timeStr = new Date(timestamp).toLocaleTimeString()
 
-    // Write all events to SQLite (stripping base64 image data for screenshots to keep logs lightweight)
-    if (eventType === "SCREENSHOT_CAPTURED") {
-      const cleanMetadata = { ...metadata }
-      delete cleanMetadata.image
-      logToSQLite(employeeEmail, eventType, url, title, timestamp, cleanMetadata)
-    } else {
-      logToSQLite(employeeEmail, eventType, url, title, timestamp, metadata)
-    }
+    // Write all events to SQLite
+    logToSQLite(employeeEmail, eventType, url, title, timestamp, metadata)
+
 
     // Write Encord task lifecycle events to the dedicated task_events table
-    const TASK_LIFECYCLE_EVENTS = ["TASK_STARTED", "TASK_COMPLETED", "TASK_SKIPPED", "TASK_EXITED"]
+    const TASK_LIFECYCLE_EVENTS = ["TASK_STARTED", "TASK_SKIPPED", "TASK_EXITED"]
     if (TASK_LIFECYCLE_EVENTS.includes(eventType)) {
       const projectId = metadata?.projectId ?? null
       const dataId = metadata?.dataId ?? null
@@ -307,46 +275,16 @@ app.post("/api/activity", async (req, res) => {
       console.log(`${bold}${green}🚀 SESSION STARTED [${timeStr}] - User: ${employeeEmail}${reset}`)
       console.log(`  Tracking activated. Listening to browser events...`)
       console.log(`${bold}${green}============================================================${reset}\n`)
-    } else if (eventType === "SCREENSHOT_CAPTURED") {
-      console.log(`\n${bold}[${timeStr}] EVENT: SCREENSHOT_CAPTURED - User: ${employeeEmail}${reset}`)
-      try {
-        const base64Data = metadata.image.replace(/^data:image\/jpeg;base64,/, "")
-        const buffer = Buffer.from(base64Data, "base64")
-        
-        // Sanitize tab title to make it safe for file systems
-        const cleanTitle = title
-          ? title.replace(/[^a-zA-Z0-9\s-_]/g, "").trim().substring(0, 50).replace(/\s+/g, "_")
-          : "unknown"
 
-        // Format date, time, and milliseconds for uniqueness
-        const now = new Date()
-        const dateStr = now.toISOString().split("T")[0] // YYYY-MM-DD
-        const timeStrFormatted = now.toTimeString().split(" ")[0].replace(/:/g, "-") // HH-MM-SS
-        const ms = String(now.getMilliseconds()).padStart(3, "0")
-        
-        const cleanEmail = employeeEmail.replace(/[^a-zA-Z0-9]/g, "_")
-        const filename = `${cleanEmail}_${cleanTitle}_${dateStr}_${timeStrFormatted}-${ms}.jpg`
-        const filepath = path.join(SCREENSHOTS_DIR, filename)
-        
-        fs.writeFileSync(filepath, buffer)
-        console.log(`  ${green}Saved to:${reset} ${filepath}`)
-
-        // Write screenshot record to SQLite
-        logScreenshotToSQLite(employeeEmail, url, title, timestamp, filepath)
-      } catch (err) {
-        console.error("  Failed to save screenshot:", err)
-      }
-      console.log(`${gray}------------------------------------------------------------${reset}`)
     } else if (TASK_LIFECYCLE_EVENTS.includes(eventType)) {
       const icon = eventType === "TASK_STARTED" ? "▶️" :
-                   eventType === "TASK_COMPLETED" ? "✅" :
                    eventType === "TASK_SKIPPED" ? "⏭️" : "🚪"
-      const color = eventType === "TASK_COMPLETED" ? green :
-                    eventType === "TASK_SKIPPED" ? yellow :
+      const color = eventType === "TASK_SKIPPED" ? yellow :
                     eventType === "TASK_EXITED" ? red : cyan
       console.log(`\n${bold}${color}${icon} TASK EVENT [${timeStr}]: ${eventType} - User: ${employeeEmail}${reset}`)
       console.log(`  ${blue}Project:${reset} ${metadata?.projectId ?? "N/A"}`)
       console.log(`  ${blue}Data ID:${reset} ${metadata?.dataId ?? "N/A"}`)
+
       if (url) console.log(`  ${green}URL:${reset}     ${url}`)
       console.log(`${gray}------------------------------------------------------------${reset}`)
     } else if (eventType === "ENCORD_PAGE_VIEW") {

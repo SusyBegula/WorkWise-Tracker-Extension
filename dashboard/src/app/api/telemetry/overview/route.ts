@@ -55,12 +55,6 @@ export async function GET() {
        ) latest ON al.id = latest.max_id`
     )
 
-    // 5. Query SQLite for screenshots count per user (all time)
-    const screenshotCountsAllTime = await querySQLite<{ email: string; count: number }>(
-      `SELECT email, COUNT(*) as count 
-       FROM screenshots 
-       GROUP BY email`
-    )
 
     // 6. Query SQLite for today's session events (STARTED and STOPPED)
     const sessionEventsToday = await querySQLite<{
@@ -90,15 +84,16 @@ export async function GET() {
       [startOfToday]
     )
 
-    // 8. Query SQLite for completed tasks over the last 7 days (to render sparkline)
+    // 8. Query SQLite for skipped tasks over the last 7 days (to render sparkline)
     const taskEventsLast7Days = await querySQLite<{
       timestamp: string
     }>(
       `SELECT timestamp
        FROM task_events
-       WHERE event_type = 'TASK_COMPLETED' AND timestamp >= ?`,
+       WHERE event_type = 'TASK_SKIPPED' AND timestamp >= ?`,
       [startOfSevenDaysAgo]
     )
+
 
     // 9. Query SQLite for hourly activity load (all time)
     const hourlyActivity = await querySQLite<{ hour: string; count: number }>(
@@ -115,10 +110,10 @@ export async function GET() {
        GROUP BY event_type`
     )
 
-    const tasksCompletedToday = taskEventsToday.filter(t => t.event_type === "TASK_COMPLETED").length
     const tasksSkippedToday = taskEventsToday.filter(t => t.event_type === "TASK_SKIPPED").length
-    const totalTasksToday = tasksCompletedToday + tasksSkippedToday
-    const skipRateToday = totalTasksToday > 0 ? Math.round((tasksSkippedToday / totalTasksToday) * 100) : 0
+    const tasksStartedToday = taskEventsToday.filter(t => t.event_type === "TASK_STARTED").length
+    const skipRateToday = tasksStartedToday > 0 ? Math.round((tasksSkippedToday / tasksStartedToday) * 100) : 0
+
 
 
     // Unique active users today
@@ -206,7 +201,6 @@ export async function GET() {
     // Build the teamMembers list for the Team Overview tab
     const teamMembersData = employees.map(emp => {
       const stats = userStatsAllTime.find(s => s.email.toLowerCase() === emp.email.toLowerCase())
-      const screens = screenshotCountsAllTime.find(s => s.email.toLowerCase() === emp.email.toLowerCase())
       const latest = latestEvents.find(s => s.email.toLowerCase() === emp.email.toLowerCase())
 
       // Filter today's session events for this user
@@ -277,8 +271,9 @@ export async function GET() {
 
       // Today's task counts for this user
       const userTasksToday = taskEventsToday.filter(t => t.email.toLowerCase() === emp.email.toLowerCase())
-      const tasksCompletedToday = userTasksToday.filter(t => t.event_type === "TASK_COMPLETED").length
       const tasksSkippedToday = userTasksToday.filter(t => t.event_type === "TASK_SKIPPED").length
+      const tasksStartedToday = userTasksToday.filter(t => t.event_type === "TASK_STARTED").length
+
 
       // Focus ratio
       const focusRatioToday = sessionTimeTodayMs > 0
@@ -330,7 +325,7 @@ export async function GET() {
         name: emp.name,
         role: emp.role,
         eventCount: stats ? stats.event_count : 0,
-        screenshotCount: screens ? screens.count : 0,
+        screenshotCount: 0,
         lastActive: stats ? stats.last_active : null,
         isTrackingActive,
         currentStatus,
@@ -341,8 +336,8 @@ export async function GET() {
         sessionTimeTodayMs,
         activeTimeTodayMs,
         pauseCountToday,
-        tasksCompletedToday,
         tasksSkippedToday,
+        tasksStartedToday,
         focusRatioToday
       }
     })
@@ -371,22 +366,22 @@ export async function GET() {
     // Alert 2: High skip rate
     teamMembersData.forEach(member => {
       const userTasksToday = taskEventsToday.filter(t => t.email.toLowerCase() === member.email.toLowerCase())
-      const completed = userTasksToday.filter(t => t.event_type === "TASK_COMPLETED").length
+      const started = userTasksToday.filter(t => t.event_type === "TASK_STARTED").length
       const skipped = userTasksToday.filter(t => t.event_type === "TASK_SKIPPED").length
-      const total = completed + skipped
-      if (total >= 3) {
-        const rate = Math.round((skipped / total) * 100)
+      if (started >= 3) {
+        const rate = Math.round((skipped / started) * 100)
         if (rate >= 40) {
           alertsList.push({
             id: `high_skip_${member.email}`,
             type: "critical",
             title: "High Skip Rate Alert",
-            description: `${member.name} skipped ${skipped} out of ${total} tasks today (${rate}% skip rate).`,
+            description: `${member.name} skipped ${skipped} out of ${started} started tasks today (${rate}% skip rate).`,
             time: "Active Session"
           })
         }
       }
     })
+
 
     // Alert 3: Session running too long (>8 hours)
     teamMembersData.forEach(member => {
@@ -415,7 +410,7 @@ export async function GET() {
       kpis: {
         totalAnnotatorsToday: activeEmailsToday.size,
         teamActiveTimeTodayMs: teamActiveTimeMsToday,
-        tasksCompletedToday,
+        tasksStartedToday,
         tasksSkippedToday,
         skipRateToday,
         focusRatioToday,

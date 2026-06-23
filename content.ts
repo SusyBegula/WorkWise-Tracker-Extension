@@ -18,15 +18,15 @@ function isBlockedUrl(): boolean {
 // ENCORD CONTEXT HELPERS
 // ─────────────────────────────────────────────────────────────
 
-const isEncordDomain = window.location.hostname === "app.encord.com"
+const isEncordDomain = window.location.hostname.includes("app.encord.com")
 
 /** Returns the category of the current Encord page. */
 function getEncordPageCategory(): "home" | "projects" | "project_view" | "label_editor" | "other" | null {
   if (!isEncordDomain) return null
   const path = window.location.pathname
-  if (path.startsWith("/label_editor/")) return "label_editor"
-  if (path.startsWith("/projects/view")) return "project_view"
-  if (path.startsWith("/projects/")) return "projects"
+  if (path.includes("/label_editor/")) return "label_editor"
+  if (path.includes("/projects/view")) return "project_view"
+  if (path.includes("/projects/")) return "projects"
   if (path === "/" || path === "") return "home"
   return "other"
 }
@@ -34,11 +34,19 @@ function getEncordPageCategory(): "home" | "projects" | "project_view" | "label_
 /** Extracts `{ projectId, dataId }` from a label editor URL. */
 function parseLabelEditorParams(url: string): { projectId: string; dataId: string } | null {
   try {
-    const match = new URL(url).pathname.match(/^\/label_editor\/([^/]+)\/([^/?#]+)/)
-    if (match) return { projectId: match[1], dataId: match[2] }
+    const parsed = new URL(url)
+    const segments = parsed.pathname.split("/").filter(Boolean)
+    const idx = segments.indexOf("label_editor")
+    if (idx !== -1 && segments.length > idx + 2) {
+      return {
+        projectId: segments[idx + 1],
+        dataId: segments[idx + 2]
+      }
+    }
   } catch {}
   return null
 }
+
 
 // ─────────────────────────────────────────────────────────────
 // MOUSE CLICK TRACKING (with data-testid + task lifecycle)
@@ -66,20 +74,7 @@ document.addEventListener("click", (event) => {
 
   // ── Encord Task Lifecycle: high-priority event detection ──
   if (isEncordDomain && dataTestId) {
-    if (dataTestId === "editor-task-submit") {
-      const params = parseLabelEditorParams(window.location.href)
-      chrome.runtime.sendMessage({
-        type: "PAGE_EVENT",
-        eventType: "TASK_COMPLETED",
-        url: window.location.href,
-        title: document.title,
-        metadata: {
-          dataTestId,
-          projectId: params?.projectId ?? null,
-          dataId: params?.dataId ?? null
-        }
-      }).catch(() => {})
-    } else if (dataTestId === "editor-task-skip") {
+    if (dataTestId === "editor-task-skip") {
       const params = parseLabelEditorParams(window.location.href)
       chrome.runtime.sendMessage({
         type: "PAGE_EVENT",

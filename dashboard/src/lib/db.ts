@@ -33,16 +33,7 @@ export const sqliteDb = new sqlite3.Database(
             metadata TEXT
           )
         `)
-        sqliteDb.run(`
-          CREATE TABLE IF NOT EXISTS screenshots (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            email TEXT,
-            url TEXT,
-            title TEXT,
-            timestamp TEXT,
-            filepath TEXT
-          )
-        `)
+
         sqliteDb.run(`
           CREATE TABLE IF NOT EXISTS task_events (
             id INTEGER PRIMARY KEY AUTOINCREMENT,

@@ -48,7 +48,7 @@ interface TeamMember {
   sessionTimeTodayMs?: number
   activeTimeTodayMs?: number
   pauseCountToday?: number
-  tasksCompletedToday?: number
+  tasksStartedToday?: number
   tasksSkippedToday?: number
   focusRatioToday?: number
 }
@@ -85,7 +85,7 @@ interface Screenshot {
 interface KPIStats {
   totalAnnotatorsToday: number
   teamActiveTimeTodayMs: number
-  tasksCompletedToday: number
+  tasksStartedToday: number
   tasksSkippedToday: number
   skipRateToday: number
   focusRatioToday: number
@@ -106,14 +106,13 @@ interface AlertItem {
 }
 
 export default function DashboardContainer({ session }: { session: Session }) {
-  const [activeTab, setActiveTab] = useState<"dashboard" | "team" | "timeline" | "screenshots">("dashboard")
+  const [activeTab, setActiveTab] = useState<"dashboard" | "team" | "timeline">("dashboard")
   const [selectedUser, setSelectedUser] = useState<string>("")
   const [teamMembers, setTeamMembers] = useState<TeamMember[]>([])
   const [eventDistribution, setEventDistribution] = useState<EventDist[]>([])
   const [hourlyActivity, setHourlyActivity] = useState<HourlyAct[]>([])
   const [timelineLogs, setTimelineLogs] = useState<ActivityLog[]>([])
   const [timelineStats, setTimelineStats] = useState<EventDist[]>([])
-  const [screenshots, setScreenshots] = useState<Screenshot[]>([])
   
   // Home Dashboard Specific States
   const [kpis, setKpis] = useState<KPIStats | null>(null)
@@ -122,7 +121,6 @@ export default function DashboardContainer({ session }: { session: Session }) {
 
   // Individual Profile States
   const [profileTaskEvents, setProfileTaskEvents] = useState<any[]>([])
-  const [profileScreenshots, setProfileScreenshots] = useState<any[]>([])
   const [profileDomainTime, setProfileDomainTime] = useState<Record<string, number>>({})
   const [profileEncordCategoryTime, setProfileEncordCategoryTime] = useState<Record<string, number>>({
     home: 0,
@@ -136,12 +134,8 @@ export default function DashboardContainer({ session }: { session: Session }) {
   // Loading & Error States
   const [isLoadingOverview, setIsLoadingOverview] = useState(true)
   const [isLoadingTimeline, setIsLoadingTimeline] = useState(false)
-  const [isLoadingScreenshots, setIsLoadingScreenshots] = useState(false)
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
   
-  // Lightbox State for Screenshots
-  const [lightboxImg, setLightboxImg] = useState<{ src: string; title: string; email: string; time: string } | null>(null)
-
   // Filtering & Sorting States for Team Overview
   const [searchQuery, setSearchQuery] = useState("")
   const [statusFilter, setStatusFilter] = useState<"all" | "active" | "offline">("all")
@@ -164,12 +158,10 @@ export default function DashboardContainer({ session }: { session: Session }) {
     fetchOverviewData()
   }, [])
 
-  // Load Timeline or Screenshot Data when user selection / tab changes
+  // Load Timeline Data when user selection / tab changes
   useEffect(() => {
     if (activeTab === "timeline" && selectedUser) {
       fetchTimelineData(selectedUser)
-    } else if (activeTab === "screenshots") {
-      fetchScreenshotsData(selectedUser)
     }
   }, [activeTab, selectedUser])
 
@@ -207,7 +199,6 @@ export default function DashboardContainer({ session }: { session: Session }) {
       setTimelineLogs(data.logs || [])
       setTimelineStats(data.stats || [])
       setProfileTaskEvents(data.taskEvents || [])
-      setProfileScreenshots(data.screenshots || [])
       setProfileDomainTime(data.domainTime || {})
       setProfileEncordCategoryTime(data.encordCategoryTime || {
         home: 0,
@@ -224,21 +215,6 @@ export default function DashboardContainer({ session }: { session: Session }) {
     }
   }
 
-
-  const fetchScreenshotsData = async (email?: string) => {
-    setIsLoadingScreenshots(true)
-    try {
-      const url = email ? `/api/telemetry/screenshots?email=${encodeURIComponent(email)}` : "/api/telemetry/screenshots"
-      const res = await fetch(url)
-      if (!res.ok) throw new Error("Failed to load screenshots feed.")
-      const data = await res.json()
-      setScreenshots(data || [])
-    } catch (err: any) {
-      console.error(err)
-    } finally {
-      setIsLoadingScreenshots(false)
-    }
-  }
 
   const handleLogout = async () => {
     try {
@@ -348,19 +324,19 @@ export default function DashboardContainer({ session }: { session: Session }) {
     })
 
   return (
-    <div className="min-h-screen bg-[#090d16] text-slate-100 flex font-sans">
-      <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(59,130,246,0.04),transparent_50%)] pointer-events-none" />
+    <div className="min-h-screen bg-slate-50 text-slate-800 flex font-sans">
+      <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(59,130,246,0.03),transparent_50%)] pointer-events-none" />
 
       {/* Sidebar */}
-      <aside className="w-64 bg-[#111827]/40 border-r border-white/5 flex flex-col backdrop-blur-md">
+      <aside className="w-64 bg-white border-r border-slate-205 border-slate-200 flex flex-col">
         {/* Brand Header */}
-        <div className="p-6 border-b border-white/5 flex items-center gap-3">
-          <div className="w-8 h-8 bg-blue-500/10 border border-blue-500/30 rounded-lg flex items-center justify-center text-blue-400">
+        <div className="p-6 border-b border-slate-200 flex items-center gap-3">
+          <div className="w-8 h-8 bg-blue-50 border border-blue-100 rounded-lg flex items-center justify-center text-blue-600">
             <Clock className="w-4 h-4 animate-pulse" />
           </div>
           <div>
-            <h1 className="text-md font-bold tracking-tight text-white flex items-center gap-1.5">
-              WorkWise <span className="text-[9px] bg-blue-500/20 text-blue-300 px-1.5 py-0.5 rounded-full border border-blue-500/30">Console</span>
+            <h1 className="text-md font-bold tracking-tight text-slate-900 flex items-center gap-1.5">
+              WorkWise <span className="text-[9px] bg-blue-50 text-blue-600 px-1.5 py-0.5 rounded-full border border-blue-150 border-blue-200/80">Console</span>
             </h1>
           </div>
         </div>
@@ -371,8 +347,8 @@ export default function DashboardContainer({ session }: { session: Session }) {
             onClick={() => setActiveTab("dashboard")}
             className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-colors cursor-pointer ${
               activeTab === "dashboard"
-                ? "bg-blue-600/15 border border-blue-500/20 text-blue-400 font-semibold"
-                : "text-slate-400 hover:bg-white/5 hover:text-slate-200"
+                ? "bg-blue-50 border border-blue-100/50 text-blue-600 font-semibold"
+                : "text-slate-600 hover:bg-slate-50 hover:text-slate-900"
             }`}
           >
             <Home className="w-4 h-4" />
@@ -383,8 +359,8 @@ export default function DashboardContainer({ session }: { session: Session }) {
             onClick={() => setActiveTab("team")}
             className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-colors cursor-pointer ${
               activeTab === "team"
-                ? "bg-blue-600/15 border border-blue-500/20 text-blue-400 font-semibold"
-                : "text-slate-400 hover:bg-white/5 hover:text-slate-200"
+                ? "bg-blue-50 border border-blue-100/50 text-blue-600 font-semibold"
+                : "text-slate-600 hover:bg-slate-50 hover:text-slate-900"
             }`}
           >
             <Users className="w-4 h-4" />
@@ -395,42 +371,31 @@ export default function DashboardContainer({ session }: { session: Session }) {
             onClick={() => setActiveTab("timeline")}
             className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-colors cursor-pointer ${
               activeTab === "timeline"
-                ? "bg-blue-600/15 border border-blue-500/20 text-blue-400 font-semibold"
-                : "text-slate-400 hover:bg-white/5 hover:text-slate-200"
+                ? "bg-blue-50 border border-blue-100/50 text-blue-600 font-semibold"
+                : "text-slate-600 hover:bg-slate-50 hover:text-slate-900"
             }`}
           >
             <Activity className="w-4 h-4" />
             <span>Employee Timelines</span>
           </button>
 
-          <button
-            onClick={() => setActiveTab("screenshots")}
-            className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-colors cursor-pointer ${
-              activeTab === "screenshots"
-                ? "bg-blue-600/15 border border-blue-500/20 text-blue-400 font-semibold"
-                : "text-slate-400 hover:bg-white/5 hover:text-slate-200"
-            }`}
-          >
-            <ImageIcon className="w-4 h-4" />
-            <span>Visual Screenshots</span>
-          </button>
         </nav>
 
         {/* Profile Footer */}
-        <div className="p-4 border-t border-white/5 space-y-4">
-          <div className="bg-slate-900/50 border border-white/5 rounded-xl p-3 flex items-center gap-3">
-            <div className="w-9 h-9 bg-slate-800 border border-white/10 rounded-full flex items-center justify-center font-bold text-blue-400 text-sm">
+        <div className="p-4 border-t border-slate-200 space-y-4">
+          <div className="bg-slate-50 border border-slate-200/80 rounded-xl p-3 flex items-center gap-3">
+            <div className="w-9 h-9 bg-blue-50 border border-blue-100 rounded-full flex items-center justify-center font-bold text-blue-600 text-sm">
               {session.name ? session.name.substring(0, 2).toUpperCase() : "AD"}
             </div>
             <div className="overflow-hidden">
-              <p className="text-xs font-semibold text-slate-200 truncate">{session.name || "Administrator"}</p>
+              <p className="text-xs font-semibold text-slate-800 truncate">{session.name || "Administrator"}</p>
               <p className="text-[10px] text-slate-500 truncate" title={session.email}>{session.email}</p>
             </div>
           </div>
 
           <button
             onClick={handleLogout}
-            className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-xs font-semibold border border-white/5 hover:border-red-500/20 hover:bg-red-500/10 text-slate-400 hover:text-red-400 transition-all cursor-pointer"
+            className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-xs font-semibold border border-slate-200 hover:border-red-200 hover:bg-red-50 text-slate-600 hover:text-red-600 transition-all cursor-pointer"
           >
             <LogOut className="w-3.5 h-3.5" />
             <span>Log Out</span>
@@ -441,23 +406,22 @@ export default function DashboardContainer({ session }: { session: Session }) {
       {/* Main Content Area */}
       <main className="flex-1 flex flex-col h-screen overflow-y-auto">
         {/* Top bar header */}
-        <header className="h-16 border-b border-white/5 px-8 flex items-center justify-between shrink-0 bg-[#090d16]/30 backdrop-blur-md">
+        <header className="h-16 border-b border-slate-200 px-8 flex items-center justify-between shrink-0 bg-white/80 backdrop-blur-md">
           <div className="flex items-center gap-3">
-            <h2 className="text-sm font-bold text-white uppercase tracking-widest">
+            <h2 className="text-sm font-bold text-slate-800 uppercase tracking-widest">
               {activeTab === "dashboard" && "🏠 Operations Command Center"}
               {activeTab === "team" && "👥 Team Performance Roster"}
               {activeTab === "timeline" && "⌛ Employee Timeline Detailed Logs"}
-              {activeTab === "screenshots" && "📸 Visual Proof-Of-Work Feed"}
             </h2>
           </div>
           {/* User selection sync bar for subtabs */}
-          {(activeTab === "timeline" || activeTab === "screenshots") && (
+          {activeTab === "timeline" && (
             <div className="flex items-center gap-3">
-              <span className="text-xs text-slate-400 font-semibold uppercase tracking-wider">Focus User:</span>
+              <span className="text-xs text-slate-500 font-semibold uppercase tracking-wider">Focus User:</span>
               <select
                 value={selectedUser}
                 onChange={(e) => setSelectedUser(e.target.value)}
-                className="bg-slate-900/80 border border-white/10 text-slate-200 text-xs rounded-xl px-3 py-1.5 focus:outline-none focus:border-blue-500/30 cursor-pointer animate-fade-in"
+                className="bg-white border border-slate-200 text-slate-700 text-xs rounded-xl px-3 py-1.5 focus:outline-none focus:border-blue-500/30 cursor-pointer animate-fade-in"
               >
                 {teamMembers.map(member => (
                   <option key={member.email} value={member.email}>
@@ -467,10 +431,9 @@ export default function DashboardContainer({ session }: { session: Session }) {
               </select>
               <button 
                 onClick={() => {
-                  if (activeTab === "timeline") fetchTimelineData(selectedUser)
-                  else fetchScreenshotsData(selectedUser)
+                  fetchTimelineData(selectedUser)
                 }}
-                className="p-1.5 bg-slate-900 border border-white/5 hover:bg-white/5 rounded-lg text-slate-400 hover:text-white transition-colors cursor-pointer"
+                className="p-1.5 bg-white border border-slate-200 hover:bg-slate-50 rounded-lg text-slate-500 hover:text-slate-800 transition-colors cursor-pointer"
                 title="Refresh logs"
               >
                 <RotateCw className="w-3.5 h-3.5" />
@@ -481,7 +444,7 @@ export default function DashboardContainer({ session }: { session: Session }) {
           {(activeTab === "dashboard" || activeTab === "team") && (
             <button 
               onClick={fetchOverviewData}
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-900 border border-white/5 hover:bg-white/5 rounded-xl text-xs font-semibold text-slate-400 hover:text-white transition-all cursor-pointer"
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-white border border-slate-200 hover:bg-slate-50 rounded-xl text-xs font-semibold text-slate-500 hover:text-slate-800 transition-all cursor-pointer"
             >
               <RotateCw className="w-3.5 h-3.5" />
               <span>Refresh Data</span>
@@ -492,47 +455,45 @@ export default function DashboardContainer({ session }: { session: Session }) {
         {/* Dashboard Panels */}
         <div className="flex-1 p-8 space-y-6">
           {errorMsg && (
-            <div className="bg-red-500/10 border border-red-500/25 rounded-xl p-4 flex items-start gap-3 text-red-400 text-sm">
+            <div className="bg-red-50 border border-red-200/60 rounded-xl p-4 flex items-start gap-3 text-red-600 text-sm">
               <AlertTriangle className="w-5 h-5 shrink-0 mt-0.5" />
               <div>
                 <p className="font-semibold">Unable to fetch dashboard telemetry</p>
-                <p className="text-xs text-red-400/80 mt-0.5">{errorMsg}</p>
+                <p className="text-xs text-red-600/80 mt-0.5">{errorMsg}</p>
               </div>
             </div>
           )}
 
           {/* ========================================================
               OVERVIEW TAB
-             ==================================================          {/* ========================================================
-              DASHBOARD (HOME / LANDING)
              ======================================================== */}
           {activeTab === "dashboard" && (
             <>
               {isLoadingOverview ? (
-                <div className="flex flex-col items-center justify-center py-20 text-slate-400 gap-3">
-                  <RotateCw className="w-8 h-8 animate-spin text-blue-500" />
+                <div className="flex flex-col items-center justify-center py-20 text-slate-500 gap-3">
+                  <RotateCw className="w-8 h-8 animate-spin text-blue-600" />
                   <span className="text-sm">Initializing command center...</span>
                 </div>
               ) : (
                 <div className="space-y-8 animate-fade-in">
                   {/* Real-time Team Activity Strip */}
-                  <div className="bg-[#111827]/40 border border-white/5 rounded-2xl p-6 backdrop-blur-md">
+                  <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm shadow-slate-100/50">
                     <div className="flex items-center justify-between mb-4">
                       <div>
-                        <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Live Activity Feed</h4>
+                        <h4 className="text-xs font-bold text-slate-500 uppercase tracking-wider">Live Activity Feed</h4>
                         <p className="text-[10px] text-slate-500">Real-time status updates from active extension clients</p>
                       </div>
                       <div className="flex items-center gap-4 text-xs">
-                        <span className="flex items-center gap-1.5 text-emerald-400">
-                          <span className="w-2 h-2 rounded-full bg-emerald-400 inline-block animate-ping" />
+                        <span className="flex items-center gap-1.5 text-emerald-600 font-medium">
+                          <span className="w-2 h-2 rounded-full bg-emerald-500 inline-block animate-ping" />
                           {teamMembers.filter(m => m.currentStatus === "active").length} Active
                         </span>
-                        <span className="flex items-center gap-1.5 text-amber-400">
-                          <span className="w-2 h-2 rounded-full bg-amber-400 inline-block" />
+                        <span className="flex items-center gap-1.5 text-amber-600 font-medium">
+                          <span className="w-2 h-2 rounded-full bg-amber-500 inline-block" />
                           {teamMembers.filter(m => m.currentStatus === "idle").length} Idle
                         </span>
-                        <span className="flex items-center gap-1.5 text-slate-500">
-                          <span className="w-2 h-2 rounded-full bg-slate-600 inline-block" />
+                        <span className="flex items-center gap-1.5 text-slate-500 font-medium">
+                          <span className="w-2 h-2 rounded-full bg-slate-400 inline-block" />
                           {teamMembers.filter(m => m.currentStatus === "offline").length} Offline
                         </span>
                       </div>
@@ -546,27 +507,27 @@ export default function DashboardContainer({ session }: { session: Session }) {
                             setSelectedUser(member.email)
                             setActiveTab("timeline")
                           }}
-                          className="bg-[#090d16]/50 border border-white/5 hover:border-blue-500/20 hover:bg-blue-600/[0.02] rounded-xl p-3 flex items-center gap-3 transition-all cursor-pointer group"
+                          className="bg-slate-50/50 border border-slate-200 hover:border-blue-200 hover:bg-blue-50/30 rounded-xl p-3 flex items-center gap-3 transition-all cursor-pointer group"
                         >
                           {/* Avatar status ring */}
                           <div className={`w-9 h-9 rounded-full flex items-center justify-center font-bold text-xs shrink-0 border-2 ${
-                            member.currentStatus === "active" ? "border-emerald-500 text-emerald-400 bg-emerald-500/5" :
-                            member.currentStatus === "idle" ? "border-amber-500 text-amber-400 bg-amber-500/5" :
-                            "border-slate-800 text-slate-400 bg-slate-900/50"
+                            member.currentStatus === "active" ? "border-emerald-200 text-emerald-600 bg-emerald-50" :
+                            member.currentStatus === "idle" ? "border-amber-200 text-amber-600 bg-amber-50" :
+                            "border-slate-205 border-slate-200 text-slate-500 bg-slate-100"
                           }`}>
                             {member.name.substring(0, 2).toUpperCase()}
                           </div>
 
                           <div className="overflow-hidden flex-1">
                             <div className="flex items-center justify-between gap-1">
-                              <p className="text-xs font-bold text-slate-200 truncate group-hover:text-blue-400 transition-colors">{member.name}</p>
+                              <p className="text-xs font-bold text-slate-700 truncate group-hover:text-blue-600 transition-colors">{member.name}</p>
                               <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${
-                                member.currentStatus === "active" ? "bg-emerald-400" :
-                                member.currentStatus === "idle" ? "bg-amber-400" : "bg-slate-600"
+                                member.currentStatus === "active" ? "bg-emerald-500" :
+                                member.currentStatus === "idle" ? "bg-amber-500" : "bg-slate-400"
                               }`} />
                             </div>
                             <p className="text-[9px] text-slate-500 truncate" title={member.email}>{member.email}</p>
-                            <p className="text-[9px] text-slate-400 truncate mt-1 italic font-light">
+                            <p className="text-[9px] text-slate-600 truncate mt-1 italic font-light">
                               {member.currentStatus === "active" ? (
                                 member.lastTitle ? `Viewing: ${member.lastTitle}` : "Active now"
                               ) : member.currentStatus === "idle" ? (
@@ -582,28 +543,28 @@ export default function DashboardContainer({ session }: { session: Session }) {
                   {/* Operations KPI Cards */}
                   <div className="grid grid-cols-1 md:grid-cols-5 gap-6">
                     {/* Active Annotators Today */}
-                    <div className="bg-[#111827]/40 border border-white/5 rounded-2xl p-6 relative overflow-hidden backdrop-blur-md">
+                    <div className="bg-white border border-slate-200/80 rounded-2xl p-6 relative overflow-hidden shadow-sm shadow-slate-100/50">
                       <div className="flex items-center justify-between mb-3">
-                        <span className="text-slate-400 text-xs font-semibold uppercase tracking-wider">Active Today</span>
-                        <div className="w-8 h-8 bg-emerald-500/10 rounded-lg flex items-center justify-center text-emerald-400">
+                        <span className="text-slate-505 text-slate-500 text-xs font-semibold uppercase tracking-wider">Active Today</span>
+                        <div className="w-8 h-8 bg-emerald-50 border border-emerald-100 rounded-lg flex items-center justify-center text-emerald-600">
                           <Users className="w-4 h-4" />
                         </div>
                       </div>
-                      <h3 className="text-2xl font-bold text-white">
+                      <h3 className="text-2xl font-bold text-slate-800">
                         {kpis?.totalAnnotatorsToday || 0} <span className="text-xs font-normal text-slate-500">/ {teamMembers.length}</span>
                       </h3>
                       <p className="text-slate-500 text-[10px] mt-1.5">Logged session load today</p>
                     </div>
 
                     {/* Team Production Time Today */}
-                    <div className="bg-[#111827]/40 border border-white/5 rounded-2xl p-6 relative overflow-hidden backdrop-blur-md">
+                    <div className="bg-white border border-slate-200/80 rounded-2xl p-6 relative overflow-hidden shadow-sm shadow-slate-100/50">
                       <div className="flex items-center justify-between mb-3">
-                        <span className="text-slate-400 text-xs font-semibold uppercase tracking-wider">Team Active Time</span>
-                        <div className="w-8 h-8 bg-blue-500/10 rounded-lg flex items-center justify-center text-blue-400">
+                        <span className="text-slate-550 text-slate-500 text-xs font-semibold uppercase tracking-wider">Team Active Time</span>
+                        <div className="w-8 h-8 bg-blue-50 border border-blue-100 rounded-lg flex items-center justify-center text-blue-600">
                           <Clock className="w-4 h-4" />
                         </div>
                       </div>
-                      <h3 className="text-2xl font-bold text-white">
+                      <h3 className="text-2xl font-bold text-slate-800">
                         {(() => {
                           const ms = kpis?.teamActiveTimeTodayMs || 0
                           const totalSecs = Math.floor(ms / 1000)
@@ -620,50 +581,46 @@ export default function DashboardContainer({ session }: { session: Session }) {
                       <p className="text-slate-500 text-[10px] mt-1.5">Accumulated focus hours today</p>
                     </div>
 
-                    {/* Tasks Completed Today */}
-                    <div className="bg-[#111827]/40 border border-white/5 rounded-2xl p-6 relative overflow-hidden backdrop-blur-md">
+                    {/* Tasks Started Today */}
+                    <div className="bg-white border border-slate-200/80 rounded-2xl p-6 relative overflow-hidden shadow-sm shadow-slate-100/50">
                       <div className="flex items-center justify-between mb-3">
-                        <span className="text-slate-400 text-xs font-semibold uppercase tracking-wider">Tasks Done Today</span>
-                        <div className="w-8 h-8 bg-cyan-500/10 rounded-lg flex items-center justify-center text-cyan-400">
-                          <CheckCircle2 className="w-4 h-4" />
+                        <span className="text-slate-550 text-slate-500 text-xs font-semibold uppercase tracking-wider">Tasks Started Today</span>
+                        <div className="w-8 h-8 bg-blue-50 border border-blue-100 rounded-lg flex items-center justify-center text-blue-600">
+                          <Activity className="w-4 h-4" />
                         </div>
                       </div>
-                      <h3 className="text-2xl font-bold text-white">
-                        {kpis?.tasksCompletedToday || 0}
+                      <h3 className="text-2xl font-bold text-slate-800">
+                        {kpis?.tasksStartedToday || 0}
                       </h3>
-                      <p className="text-slate-500 text-[10px] mt-1.5">Completed milestone tasks</p>
+                      <p className="text-slate-500 text-[10px] mt-1.5">Total tasks loaded in editor</p>
                     </div>
 
-                    {/* Skip Rate Today */}
-                    <div className="bg-[#111827]/40 border border-white/5 rounded-2xl p-6 relative overflow-hidden backdrop-blur-md">
+                    {/* Tasks Skipped Today */}
+                    <div className="bg-white border border-slate-200/80 rounded-2xl p-6 relative overflow-hidden shadow-sm shadow-slate-100/50">
                       <div className="flex items-center justify-between mb-3">
-                        <span className="text-slate-400 text-xs font-semibold uppercase tracking-wider">Task Skip Rate</span>
-                        <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${
-                          (kpis?.skipRateToday || 0) >= 40 ? "bg-red-500/10 text-red-400" : "bg-yellow-500/10 text-yellow-400"
-                        }`}>
+                        <span className="text-slate-550 text-slate-500 text-xs font-semibold uppercase tracking-wider">Tasks Skipped Today</span>
+                        <div className="w-8 h-8 bg-amber-50 border border-amber-100 rounded-lg flex items-center justify-center text-amber-600">
                           <AlertTriangle className="w-4 h-4" />
                         </div>
                       </div>
-                      <h3 className={`text-2xl font-bold ${
-                        (kpis?.skipRateToday || 0) >= 40 ? "text-red-400" : "text-white"
-                      }`}>
-                        {kpis?.skipRateToday || 0}%
+                      <h3 className="text-2xl font-bold text-slate-800">
+                        {kpis?.tasksSkippedToday || 0}
                       </h3>
-                      <p className="text-slate-500 text-[10px] mt-1.5">Ratio of skipped vs done tasks</p>
+                      <p className="text-slate-500 text-[10px] mt-1.5">Skipped labeling tasks</p>
                     </div>
 
                     {/* Average Focus Ratio */}
-                    <div className="bg-[#111827]/40 border border-white/5 rounded-2xl p-6 relative overflow-hidden backdrop-blur-md">
+                    <div className="bg-white border border-slate-200/80 rounded-2xl p-6 relative overflow-hidden shadow-sm shadow-slate-100/50">
                       <div className="flex items-center justify-between mb-3">
-                        <span className="text-slate-400 text-xs font-semibold uppercase tracking-wider">Avg Focus Ratio</span>
-                        <div className="w-8 h-8 bg-purple-500/10 rounded-lg flex items-center justify-center text-purple-400">
+                        <span className="text-slate-550 text-slate-500 text-xs font-semibold uppercase tracking-wider">Avg Focus Ratio</span>
+                        <div className="w-8 h-8 bg-purple-50 border border-purple-100 rounded-lg flex items-center justify-center text-purple-600">
                           <TrendingUp className="w-4 h-4" />
                         </div>
                       </div>
-                      <h3 className="text-2xl font-bold text-white">
+                      <h3 className="text-2xl font-bold text-slate-800">
                         {kpis?.focusRatioToday || 0}%
                       </h3>
-                      <div className="w-full bg-slate-900 border border-white/5 h-1.5 rounded-full overflow-hidden mt-1.5">
+                      <div className="w-full bg-slate-100 border border-slate-200/60 h-1.5 rounded-full overflow-hidden mt-1.5">
                         <div 
                           style={{ width: `${kpis?.focusRatioToday || 0}%` }}
                           className="bg-purple-500 h-full rounded-full"
@@ -675,14 +632,15 @@ export default function DashboardContainer({ session }: { session: Session }) {
                   {/* Main Grid for Sparkline + System Alerts */}
                   <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                     {/* Weekly Productivity Sparkline */}
-                    <div className="lg:col-span-2 bg-[#111827]/40 border border-white/5 rounded-2xl p-6 backdrop-blur-md">
+                    <div className="lg:col-span-2 bg-white border border-slate-200 rounded-2xl p-6 shadow-sm shadow-slate-100/50">
                       <div className="flex items-center justify-between mb-6">
                         <div>
-                          <h4 className="text-xs font-bold text-white uppercase tracking-wider">Weekly Task Completion</h4>
-                          <span className="text-[10px] text-slate-500">Tasks completed over the last 7 days</span>
+                          <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider">Weekly Task Skips</h4>
+                          <span className="text-[10px] text-slate-500">Tasks skipped over the last 7 days</span>
                         </div>
                         <TrendingUp className="w-4 h-4 text-slate-500" />
                       </div>
+
 
                       {sparkline && sparkline.data.length > 0 ? (
                         <div className="h-60 flex flex-col justify-between">
@@ -694,13 +652,13 @@ export default function DashboardContainer({ session }: { session: Session }) {
                                 return (
                                   <div key={idx} className="flex-1 flex flex-col items-center gap-2 group h-full justify-end">
                                     <div className="relative w-full flex justify-center">
-                                      <span className="absolute -top-7 scale-0 group-hover:scale-100 bg-slate-950 border border-white/10 px-2 py-0.5 rounded text-[10px] font-bold transition-all z-10">
+                                      <span className="absolute -top-7 scale-0 group-hover:scale-100 bg-white border border-slate-200 shadow-md text-slate-800 px-2 py-0.5 rounded text-[10px] font-bold transition-all z-10">
                                         {val} tasks
                                       </span>
                                     </div>
                                     <div 
                                       style={{ height: `${heightPercent}%` }}
-                                      className="w-full max-w-[40px] bg-gradient-to-t from-blue-600/30 to-blue-500/80 hover:to-blue-400 border border-blue-500/30 hover:border-blue-400/50 rounded-lg transition-all duration-300 cursor-pointer"
+                                      className="w-full max-w-[40px] bg-gradient-to-t from-blue-100 to-blue-500 hover:to-blue-600 border border-blue-200 hover:border-blue-400 rounded-lg transition-all duration-300 cursor-pointer"
                                     />
                                     <span className="text-[9px] text-slate-500 uppercase tracking-widest mt-1">
                                       {sparkline.labels[idx]}
@@ -712,20 +670,20 @@ export default function DashboardContainer({ session }: { session: Session }) {
                           </div>
                         </div>
                       ) : (
-                        <div className="h-44 flex items-center justify-center text-slate-500 text-xs border border-white/[0.02] border-dashed rounded-xl">
+                        <div className="h-44 flex items-center justify-center text-slate-500 text-xs border border-slate-200 border-dashed rounded-xl">
                           No historical task data found.
                         </div>
                       )}
                     </div>
 
                     {/* Operational Alerts feed */}
-                    <div className="lg:col-span-1 bg-[#111827]/40 border border-white/5 rounded-2xl p-6 backdrop-blur-md flex flex-col">
-                      <div className="flex items-center justify-between mb-4 border-b border-white/5 pb-3">
+                    <div className="lg:col-span-1 bg-white border border-slate-200 rounded-2xl p-6 shadow-sm shadow-slate-100/50 flex flex-col">
+                      <div className="flex items-center justify-between mb-4 border-b border-slate-200 pb-3">
                         <div className="flex items-center gap-2">
                           <Bell className="w-4 h-4 text-amber-500 animate-bounce" />
-                          <h4 className="text-xs font-bold text-white uppercase tracking-wider">Alert Center</h4>
+                          <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider">Alert Center</h4>
                         </div>
-                        <span className="text-[9px] bg-white/5 px-2 py-0.5 rounded-full text-slate-400 font-semibold">
+                        <span className="text-[9px] bg-slate-50 border border-slate-200/50 px-2 py-0.5 rounded-full text-slate-500 font-semibold">
                           {alerts.length} Today
                         </span>
                       </div>
@@ -733,7 +691,7 @@ export default function DashboardContainer({ session }: { session: Session }) {
                       <div className="flex-1 overflow-y-auto max-h-[15rem] space-y-3 pr-1">
                         {alerts.length === 0 ? (
                           <div className="h-full flex flex-col items-center justify-center text-slate-500 text-xs py-10">
-                            <Check className="w-8 h-8 text-emerald-500/30 mb-2 border border-emerald-500/10 rounded-full p-1.5" />
+                            <Check className="w-8 h-8 text-emerald-600 mb-2 bg-emerald-50 border border-emerald-100 rounded-full p-1.5" />
                             <span>Operations optimal. No active alerts.</span>
                           </div>
                         ) : (
@@ -741,14 +699,14 @@ export default function DashboardContainer({ session }: { session: Session }) {
                             <div 
                               key={alert.id}
                               className={`border rounded-xl p-3 flex gap-2.5 text-xs transition-all ${
-                                alert.type === "critical" ? "bg-red-500/5 border-red-500/20 text-red-400" :
-                                alert.type === "warning" ? "bg-amber-500/5 border-amber-500/20 text-amber-400" :
-                                "bg-blue-500/5 border-blue-500/20 text-blue-400"
+                                alert.type === "critical" ? "bg-red-50 border-red-200/60 text-red-700" :
+                                alert.type === "warning" ? "bg-amber-50 border-amber-200/60 text-amber-700" :
+                                "bg-blue-50 border-blue-200/60 text-blue-700"
                               }`}
                             >
                               <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5 animate-pulse" />
                               <div className="space-y-0.5">
-                                <p className="font-bold text-white">{alert.title}</p>
+                                <p className="font-bold text-slate-800">{alert.title}</p>
                                 <p className="text-[10px] leading-relaxed opacity-90">{alert.description}</p>
                                 <span className="text-[8px] opacity-60 uppercase font-semibold tracking-wider block mt-1">
                                   {alert.time}
@@ -771,58 +729,48 @@ export default function DashboardContainer({ session }: { session: Session }) {
           {activeTab === "team" && (
             <>
               {isLoadingOverview ? (
-                <div className="flex flex-col items-center justify-center py-20 text-slate-400 gap-3">
-                  <RotateCw className="w-8 h-8 animate-spin text-blue-500" />
+                <div className="flex flex-col items-center justify-center py-20 text-slate-500 gap-3">
+                  <RotateCw className="w-8 h-8 animate-spin text-blue-600" />
                   <span className="text-sm">Loading summary metrics...</span>
                 </div>
               ) : (
                 <div className="space-y-6 animate-fade-in">
                   {/* Summary Metric Cards */}
-                  <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-                    <div className="bg-[#111827]/40 border border-white/5 rounded-2xl p-6 relative overflow-hidden backdrop-blur-md">
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                    <div className="bg-white border border-slate-200 rounded-2xl p-6 relative overflow-hidden shadow-sm shadow-slate-100/50">
                       <div className="flex items-center justify-between mb-4">
-                        <span className="text-slate-400 text-xs font-semibold uppercase tracking-wider">Active Team</span>
-                        <div className="w-8 h-8 bg-emerald-500/10 rounded-lg flex items-center justify-center text-emerald-400">
+                        <span className="text-slate-500 text-xs font-semibold uppercase tracking-wider">Active Team</span>
+                        <div className="w-8 h-8 bg-emerald-50 border border-emerald-100 rounded-lg flex items-center justify-center text-emerald-600">
                           <Users className="w-4 h-4" />
                         </div>
                       </div>
-                      <h3 className="text-2xl font-bold text-white">{activeMembers} / {teamMembers.length}</h3>
+                      <h3 className="text-2xl font-bold text-slate-800">{activeMembers} / {teamMembers.length}</h3>
                       <p className="text-slate-500 text-[10px] mt-1.5 flex items-center gap-1.5">
                         <span className="w-2 h-2 rounded-full bg-emerald-500 inline-block animate-ping" />
                         <span>Currently active tracking sessions</span>
                       </p>
                     </div>
 
-                    <div className="bg-[#111827]/40 border border-white/5 rounded-2xl p-6 relative overflow-hidden backdrop-blur-md">
+                    <div className="bg-white border border-slate-200 rounded-2xl p-6 relative overflow-hidden shadow-sm shadow-slate-100/50">
                       <div className="flex items-center justify-between mb-4">
-                        <span className="text-slate-400 text-xs font-semibold uppercase tracking-wider">Total Events logs</span>
-                        <div className="w-8 h-8 bg-cyan-500/10 rounded-lg flex items-center justify-center text-cyan-400">
+                        <span className="text-slate-500 text-xs font-semibold uppercase tracking-wider">Total Events logs</span>
+                        <div className="w-8 h-8 bg-cyan-50 border border-cyan-100 rounded-lg flex items-center justify-center text-cyan-600">
                           <Activity className="w-4 h-4" />
                         </div>
                       </div>
-                      <h3 className="text-2xl font-bold text-white">{totalLogsCount.toLocaleString()}</h3>
+                      <h3 className="text-2xl font-bold text-slate-800">{totalLogsCount.toLocaleString()}</h3>
                       <p className="text-slate-500 text-[10px] mt-1.5">Accumulated clicks and keyboard inputs</p>
                     </div>
 
-                    <div className="bg-[#111827]/40 border border-white/5 rounded-2xl p-6 relative overflow-hidden backdrop-blur-md">
-                      <div className="flex items-center justify-between mb-4">
-                        <span className="text-slate-400 text-xs font-semibold uppercase tracking-wider">Saved Screenshots</span>
-                        <div className="w-8 h-8 bg-pink-500/10 rounded-lg flex items-center justify-center text-pink-400">
-                          <ImageIcon className="w-4 h-4" />
-                        </div>
-                      </div>
-                      <h3 className="text-2xl font-bold text-white">{totalScreenshotsCount}</h3>
-                      <p className="text-slate-500 text-[10px] mt-1.5">Visual verification recordings saved on disk</p>
-                    </div>
 
-                    <div className="bg-[#111827]/40 border border-white/5 rounded-2xl p-6 relative overflow-hidden backdrop-blur-md">
+                    <div className="bg-white border border-slate-200 rounded-2xl p-6 relative overflow-hidden shadow-sm shadow-slate-100/50">
                       <div className="flex items-center justify-between mb-4">
-                        <span className="text-slate-400 text-xs font-semibold uppercase tracking-wider">Telemetry Location</span>
-                        <div className="w-8 h-8 bg-purple-500/10 rounded-lg flex items-center justify-center text-purple-400">
+                        <span className="text-slate-500 text-xs font-semibold uppercase tracking-wider">Telemetry Location</span>
+                        <div className="w-8 h-8 bg-purple-50 border border-purple-100 rounded-lg flex items-center justify-center text-purple-600">
                           <CheckCircle2 className="w-4 h-4" />
                         </div>
                       </div>
-                      <h3 className="text-base font-bold text-white truncate">shared-telemetry.db</h3>
+                      <h3 className="text-base font-bold text-slate-800 truncate">shared-telemetry.db</h3>
                       <p className="text-slate-500 text-[10px] mt-1.5 flex items-center gap-1">
                         <span className="w-1.5 h-1.5 rounded-full bg-blue-500" />
                         <span>SQLite database local cache isolation</span>
@@ -831,29 +779,29 @@ export default function DashboardContainer({ session }: { session: Session }) {
                   </div>
 
                   {/* Team Members List */}
-                  <div className="bg-[#111827]/40 border border-white/5 rounded-2xl overflow-hidden backdrop-blur-md">
-                    <div className="px-6 py-4 border-b border-white/5 flex flex-col md:flex-row md:items-center justify-between gap-4">
+                  <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm shadow-slate-100/50">
+                    <div className="px-6 py-4 border-b border-slate-200 flex flex-col md:flex-row md:items-center justify-between gap-4">
                       <div>
-                        <h4 className="text-sm font-bold text-white uppercase tracking-wider">Employee Logging Status</h4>
+                        <h4 className="text-sm font-bold text-slate-800 uppercase tracking-wider">Employee Logging Status</h4>
                         <span className="text-[10px] text-slate-500">Master whitelist synced from Neon PostgreSQL DB</span>
                       </div>
                       <div className="flex items-center gap-3">
                         {/* Search Input */}
                         <div className="relative">
-                          <Search className="w-3.5 h-3.5 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2" />
+                          <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
                           <input
                             type="text"
                             placeholder="Search employee..."
                             value={searchQuery}
                             onChange={(e) => setSearchQuery(e.target.value)}
-                            className="bg-[#090d16]/60 border border-white/5 focus:border-blue-500/50 rounded-xl pl-9 pr-4 py-1.5 text-xs text-white placeholder-slate-500 outline-none w-48 transition-all"
+                            className="bg-slate-50 border border-slate-200 focus:border-blue-500/50 focus:bg-white rounded-xl pl-9 pr-4 py-1.5 text-xs text-slate-800 placeholder-slate-400 outline-none w-48 transition-all"
                           />
                         </div>
                         {/* Status Select Filter */}
                         <select
                           value={statusFilter}
                           onChange={(e) => setStatusFilter(e.target.value as any)}
-                          className="bg-[#090d16]/60 border border-white/5 focus:border-blue-500/50 rounded-xl px-3 py-1.5 text-xs text-slate-300 outline-none cursor-pointer transition-all"
+                          className="bg-white border border-slate-200 focus:border-blue-500/50 rounded-xl px-3 py-1.5 text-xs text-slate-700 outline-none cursor-pointer transition-all"
                         >
                           <option value="all">All Statuses</option>
                           <option value="active">Active Only</option>
@@ -864,68 +812,63 @@ export default function DashboardContainer({ session }: { session: Session }) {
                     <div className="overflow-x-auto">
                       <table className="w-full text-left text-xs border-collapse">
                         <thead>
-                          <tr className="border-b border-white/5 text-slate-400 font-semibold uppercase tracking-wider select-none">
-                            <th className="px-4 py-4 cursor-pointer hover:text-white transition-colors" onClick={() => handleSort("name")}>
+                          <tr className="border-b border-slate-200 text-slate-500 font-semibold uppercase tracking-wider select-none">
+                            <th className="px-4 py-4 cursor-pointer hover:text-slate-900 transition-colors" onClick={() => handleSort("name")}>
                               <div className="flex items-center gap-1">
                                 <span>Employee</span>
                                 <span className="text-[10px] opacity-75">{sortBy === "name" ? (sortOrder === "asc" ? "▲" : "▼") : "↕"}</span>
                               </div>
                             </th>
-                            <th className="px-4 py-4 cursor-pointer hover:text-white transition-colors" onClick={() => handleSort("isTrackingActive")}>
+                            <th className="px-4 py-4 cursor-pointer hover:text-slate-900 transition-colors" onClick={() => handleSort("isTrackingActive")}>
                               <div className="flex items-center gap-1">
                                 <span>Status</span>
                                 <span className="text-[10px] opacity-75">{sortBy === "isTrackingActive" ? (sortOrder === "asc" ? "▲" : "▼") : "↕"}</span>
                               </div>
                             </th>
-                            <th className="px-3 py-4 cursor-pointer hover:text-white transition-colors" onClick={() => handleSort("sessionTimeTodayMs")}>
+                            <th className="px-3 py-4 cursor-pointer hover:text-slate-900 transition-colors" onClick={() => handleSort("sessionTimeTodayMs")}>
                               <div className="flex items-center gap-1">
                                 <span>Session Time</span>
                                 <span className="text-[10px] opacity-75">{sortBy === "sessionTimeTodayMs" ? (sortOrder === "asc" ? "▲" : "▼") : "↕"}</span>
                               </div>
                             </th>
-                            <th className="px-3 py-4 cursor-pointer hover:text-white transition-colors" onClick={() => handleSort("activeTimeTodayMs")}>
+                            <th className="px-3 py-4 cursor-pointer hover:text-slate-900 transition-colors" onClick={() => handleSort("activeTimeTodayMs")}>
                               <div className="flex items-center gap-1">
                                 <span>Active Time</span>
                                 <span className="text-[10px] opacity-75">{sortBy === "activeTimeTodayMs" ? (sortOrder === "asc" ? "▲" : "▼") : "↕"}</span>
                               </div>
                             </th>
-                            <th className="px-3 py-4 cursor-pointer hover:text-white transition-colors" onClick={() => handleSort("focusRatioToday")}>
+                            <th className="px-3 py-4 cursor-pointer hover:text-slate-900 transition-colors" onClick={() => handleSort("focusRatioToday")}>
                               <div className="flex items-center gap-1">
                                 <span>Focus Ratio</span>
                                 <span className="text-[10px] opacity-75">{sortBy === "focusRatioToday" ? (sortOrder === "asc" ? "▲" : "▼") : "↕"}</span>
                               </div>
                             </th>
-                            <th className="px-3 py-4 cursor-pointer hover:text-white transition-colors text-center" onClick={() => handleSort("tasksCompletedToday")}>
+                            <th className="px-3 py-4 cursor-pointer hover:text-slate-900 transition-colors text-center" onClick={() => handleSort("tasksStartedToday")}>
                               <div className="flex items-center justify-center gap-1">
-                                <span>Done</span>
-                                <span className="text-[10px] opacity-75">{sortBy === "tasksCompletedToday" ? (sortOrder === "asc" ? "▲" : "▼") : "↕"}</span>
+                                <span>Started</span>
+                                <span className="text-[10px] opacity-75">{sortBy === "tasksStartedToday" ? (sortOrder === "asc" ? "▲" : "▼") : "↕"}</span>
                               </div>
                             </th>
-                            <th className="px-3 py-4 cursor-pointer hover:text-white transition-colors text-center" onClick={() => handleSort("tasksSkippedToday")}>
+                            <th className="px-3 py-4 cursor-pointer hover:text-slate-900 transition-colors text-center" onClick={() => handleSort("tasksSkippedToday")}>
                               <div className="flex items-center justify-center gap-1">
                                 <span>Skipped</span>
                                 <span className="text-[10px] opacity-75">{sortBy === "tasksSkippedToday" ? (sortOrder === "asc" ? "▲" : "▼") : "↕"}</span>
                               </div>
                             </th>
-                            <th className="px-3 py-4 cursor-pointer hover:text-white transition-colors text-center" onClick={() => handleSort("pauseCountToday")}>
+                            <th className="px-3 py-4 cursor-pointer hover:text-slate-900 transition-colors text-center" onClick={() => handleSort("pauseCountToday")}>
                               <div className="flex items-center justify-center gap-1">
                                 <span>Pauses</span>
                                 <span className="text-[10px] opacity-75">{sortBy === "pauseCountToday" ? (sortOrder === "asc" ? "▲" : "▼") : "↕"}</span>
                               </div>
                             </th>
-                            <th className="px-4 py-4 cursor-pointer hover:text-white transition-colors" onClick={() => handleSort("eventCount")}>
+                            <th className="px-4 py-4 cursor-pointer hover:text-slate-900 transition-colors" onClick={() => handleSort("eventCount")}>
                               <div className="flex items-center gap-1">
                                 <span>Total Events</span>
                                 <span className="text-[10px] opacity-75">{sortBy === "eventCount" ? (sortOrder === "asc" ? "▲" : "▼") : "↕"}</span>
                               </div>
                             </th>
-                            <th className="px-4 py-4 cursor-pointer hover:text-white transition-colors" onClick={() => handleSort("screenshotCount")}>
-                              <div className="flex items-center gap-1">
-                                <span>Screens</span>
-                                <span className="text-[10px] opacity-75">{sortBy === "screenshotCount" ? (sortOrder === "asc" ? "▲" : "▼") : "↕"}</span>
-                              </div>
-                            </th>
-                            <th className="px-4 py-4 cursor-pointer hover:text-white transition-colors" onClick={() => handleSort("lastActive")}>
+
+                            <th className="px-4 py-4 cursor-pointer hover:text-slate-900 transition-colors" onClick={() => handleSort("lastActive")}>
                               <div className="flex items-center gap-1">
                                 <span>Last Active</span>
                                 <span className="text-[10px] opacity-75">{sortBy === "lastActive" ? (sortOrder === "asc" ? "▲" : "▼") : "↕"}</span>
@@ -937,20 +880,20 @@ export default function DashboardContainer({ session }: { session: Session }) {
                         <tbody>
                           {filteredAndSortedMembers.length === 0 ? (
                             <tr>
-                              <td colSpan={12} className="p-8 text-center text-slate-500 text-xs">
+                              <td colSpan={11} className="p-8 text-center text-slate-500 text-xs">
                                 No employees match the selected filters.
                               </td>
                             </tr>
                           ) : (
                             filteredAndSortedMembers.map(member => (
-                              <tr key={member.email} className="border-b border-white/5 hover:bg-white/[0.01] transition-colors">
+                              <tr key={member.email} className="border-b border-slate-200/70 hover:bg-slate-50/40 transition-colors">
                                 <td className="px-4 py-3.5">
                                   <div className="flex items-center gap-3">
-                                    <div className="w-8 h-8 bg-slate-800 rounded-full flex items-center justify-center font-bold text-slate-300 text-xs shrink-0">
+                                    <div className="w-8 h-8 bg-slate-100 rounded-full flex items-center justify-center font-bold text-slate-600 text-xs shrink-0">
                                       {member.name.substring(0,2).toUpperCase()}
                                     </div>
                                     <div>
-                                      <p className="text-xs font-bold text-slate-200">{member.name}</p>
+                                      <p className="text-xs font-bold text-slate-800">{member.name}</p>
                                       <p className="text-[10px] text-slate-500 truncate w-32">{member.email}</p>
                                     </div>
                                   </div>
@@ -958,29 +901,29 @@ export default function DashboardContainer({ session }: { session: Session }) {
                                 <td className="px-4 py-3.5">
                                   <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[9px] font-semibold border ${
                                     member.isTrackingActive
-                                      ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-400"
-                                      : "bg-slate-800/80 border-slate-700 text-slate-400"
+                                      ? "bg-emerald-50 border-emerald-100 text-emerald-700"
+                                      : "bg-slate-50 border-slate-200 text-slate-500"
                                   }`}>
-                                    <span className={`w-1 h-1 rounded-full ${member.isTrackingActive ? "bg-emerald-400 animate-pulse" : "bg-slate-500"}`} />
+                                    <span className={`w-1.5 h-1.5 rounded-full ${member.isTrackingActive ? "bg-emerald-500 animate-pulse" : "bg-slate-400"}`} />
                                     <span>{member.isTrackingActive ? "Active" : "Offline"}</span>
                                   </span>
                                 </td>
-                                <td className="px-3 py-3.5 text-slate-300">
+                                <td className="px-3 py-3.5 text-slate-700">
                                   {formatDurationMs(member.sessionTimeTodayMs || 0)}
                                 </td>
-                                <td className="px-3 py-3.5 text-emerald-400 font-medium">
+                                <td className="px-3 py-3.5 text-emerald-600 font-medium">
                                   {formatDurationMs(member.activeTimeTodayMs || 0)}
                                 </td>
                                 <td className="px-3 py-3.5">
                                   <div className="flex items-center gap-1.5">
                                     <span className={
-                                      (member.focusRatioToday || 0) >= 80 ? "text-purple-400 font-semibold" :
-                                      (member.focusRatioToday || 0) >= 50 ? "text-amber-400" : "text-red-400"
+                                      (member.focusRatioToday || 0) >= 80 ? "text-purple-600 font-semibold" :
+                                      (member.focusRatioToday || 0) >= 50 ? "text-amber-600" : "text-red-650 text-red-600"
                                     }>
                                       {member.focusRatioToday || 0}%
                                     </span>
                                     {member.sessionTimeTodayMs ? (
-                                      <div className="w-10 bg-slate-900 border border-white/5 h-1 rounded-full overflow-hidden shrink-0 hidden sm:block">
+                                      <div className="w-10 bg-slate-100 border border-slate-200/60 h-1 rounded-full overflow-hidden shrink-0 hidden sm:block">
                                         <div 
                                           style={{ width: `${member.focusRatioToday || 0}%` }}
                                           className={`h-full rounded-full ${
@@ -992,22 +935,20 @@ export default function DashboardContainer({ session }: { session: Session }) {
                                     ) : null}
                                   </div>
                                 </td>
-                                <td className="px-3 py-3.5 text-slate-300 font-bold text-center">
-                                  {member.tasksCompletedToday || 0}
+                                <td className="px-3 py-3.5 text-slate-700 font-bold text-center">
+                                  {member.tasksStartedToday || 0}
                                 </td>
-                                <td className="px-3 py-3.5 text-slate-300 font-bold text-center">
+                                <td className="px-3 py-3.5 text-slate-700 font-bold text-center">
                                   {member.tasksSkippedToday || 0}
                                 </td>
-                                <td className="px-3 py-3.5 text-slate-300 text-center">
+                                <td className="px-3 py-3.5 text-slate-700 text-center">
                                   {member.pauseCountToday || 0}
                                 </td>
-                                <td className="px-4 py-3.5 text-slate-300">
+                                <td className="px-4 py-3.5 text-slate-700">
                                   {member.eventCount.toLocaleString()}
                                 </td>
-                                <td className="px-4 py-3.5 text-slate-300">
-                                  {member.screenshotCount}
-                                </td>
-                                <td className="px-4 py-3.5 text-slate-400">
+
+                                <td className="px-4 py-3.5 text-slate-500">
                                   {member.lastActive ? `${formatDate(member.lastActive)} ${formatTime(member.lastActive)}` : "--:--"}
                                 </td>
                                 <td className="px-4 py-3.5 text-right">
@@ -1016,7 +957,7 @@ export default function DashboardContainer({ session }: { session: Session }) {
                                       setSelectedUser(member.email)
                                       setActiveTab("timeline")
                                     }}
-                                    className="p-1.5 bg-blue-600/10 hover:bg-blue-600/20 text-blue-400 border border-blue-500/20 hover:border-blue-500/40 rounded-lg transition-all text-[10px] font-semibold flex items-center gap-1 inline-flex cursor-pointer"
+                                    className="p-1.5 bg-blue-50 hover:bg-blue-100 text-blue-600 border border-blue-100 hover:border-blue-200 rounded-lg transition-all text-[10px] font-semibold flex items-center gap-1 inline-flex cursor-pointer"
                                   >
                                     <span>Audit</span>
                                     <ArrowRight className="w-2.5 h-2.5" />
@@ -1033,10 +974,10 @@ export default function DashboardContainer({ session }: { session: Session }) {
                   {/* SVG Charts Area */}
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                     {/* Hourly Load (SVG Custom Bar Chart) */}
-                    <div className="bg-[#111827]/40 border border-white/5 rounded-2xl p-6 backdrop-blur-md">
-                      <h4 className="text-sm font-bold text-white uppercase tracking-wider mb-6">Interaction Load by Hour</h4>
+                    <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm shadow-slate-100/50">
+                      <h4 className="text-sm font-bold text-slate-800 uppercase tracking-wider mb-6">Interaction Load by Hour</h4>
                       {hourlyActivity.length === 0 ? (
-                        <div className="h-64 flex items-center justify-center text-slate-500 text-xs border border-white/[0.02] border-dashed rounded-xl">
+                        <div className="h-64 flex items-center justify-center text-slate-500 text-xs border border-slate-200 border-dashed rounded-xl">
                           No hourly telemetry logs available.
                         </div>
                       ) : (
@@ -1057,7 +998,7 @@ export default function DashboardContainer({ session }: { session: Session }) {
                                       y={`${y}%`}
                                       width={`${width}%`}
                                       height={`${barHeight}%`}
-                                      className="fill-blue-500/35 hover:fill-blue-500/70 border border-blue-500/30 transition-all duration-200"
+                                      className="fill-blue-400/20 hover:fill-blue-500/80 border border-blue-500/20 hover:border-blue-500/50 transition-all duration-200"
                                       rx="1"
                                     />
                                     <title>{`Hour ${h.hour}:00 - ${h.count} events`}</title>
@@ -1066,10 +1007,10 @@ export default function DashboardContainer({ session }: { session: Session }) {
                               })
                             })()}
                             {/* Base line */}
-                            <line x1="0" y1="90%" x2="100%" y2="90%" stroke="rgba(255,255,255,0.08)" strokeWidth="1" />
+                            <line x1="0" y1="90%" x2="100%" y2="90%" stroke="rgba(0,0,0,0.06)" strokeWidth="1" />
                           </svg>
                           {/* Hour labels */}
-                          <div className="flex justify-between px-1 text-[9px] text-slate-500 border-t border-white/5 pt-3">
+                          <div className="flex justify-between px-1 text-[9px] text-slate-500 border-t border-slate-200 pt-3">
                             {hourlyActivity.filter((_, idx) => idx % Math.max(1, Math.floor(hourlyActivity.length / 6)) === 0).map(h => (
                               <span key={h.hour}>{h.hour}:00</span>
                             ))}
@@ -1079,10 +1020,10 @@ export default function DashboardContainer({ session }: { session: Session }) {
                     </div>
 
                     {/* Event Type distribution */}
-                    <div className="bg-[#111827]/40 border border-white/5 rounded-2xl p-6 backdrop-blur-md">
-                      <h4 className="text-sm font-bold text-white uppercase tracking-wider mb-6">Log Categories Breakdown</h4>
+                    <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm shadow-slate-100/50">
+                      <h4 className="text-sm font-bold text-slate-800 uppercase tracking-wider mb-6">Log Categories Breakdown</h4>
                       {eventDistribution.length === 0 ? (
-                        <div className="h-64 flex items-center justify-center text-slate-500 text-xs border border-white/[0.02] border-dashed rounded-xl">
+                        <div className="h-64 flex items-center justify-center text-slate-500 text-xs border border-slate-200 border-dashed rounded-xl">
                           No categorizable activity distribution.
                         </div>
                       ) : (
@@ -1094,13 +1035,13 @@ export default function DashboardContainer({ session }: { session: Session }) {
                               return (
                                 <div key={dist.event_type} className="space-y-1">
                                   <div className="flex items-center justify-between text-xs">
-                                    <span className="font-semibold text-slate-300 flex items-center gap-1.5">
+                                    <span className="font-semibold text-slate-700 flex items-center gap-1.5">
                                       {getEventIcon(dist.event_type)}
                                       <span>{dist.event_type}</span>
                                     </span>
-                                    <span className="text-slate-400">{dist.count.toLocaleString()} ({percentage}%)</span>
+                                    <span className="text-slate-500">{dist.count.toLocaleString()} ({percentage}%)</span>
                                   </div>
-                                  <div className="w-full bg-slate-900 border border-white/5 h-2 rounded-full overflow-hidden">
+                                  <div className="w-full bg-slate-100 border border-slate-200/60 h-2 rounded-full overflow-hidden">
                                     <div
                                       style={{ width: `${percentage}%` }}
                                       className="bg-blue-600 h-full rounded-full transition-all duration-500"
@@ -1129,37 +1070,37 @@ export default function DashboardContainer({ session }: { session: Session }) {
                 const selectedMember = teamMembers.find(m => m.email.toLowerCase() === selectedUser.toLowerCase())
                 if (!selectedMember) return null
                 return (
-                  <div className="bg-[#111827]/40 border border-white/5 rounded-2xl p-6 backdrop-blur-md flex flex-col md:flex-row md:items-center justify-between gap-6">
+                  <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm shadow-slate-100/50 flex flex-col md:flex-row md:items-center justify-between gap-6">
                     <div className="flex items-center gap-4">
                       <div className={`w-12 h-12 rounded-full flex items-center justify-center font-bold text-sm shrink-0 border-2 ${
-                        selectedMember.currentStatus === "active" ? "border-emerald-500 text-emerald-400 bg-emerald-500/5 animate-pulse" :
-                        selectedMember.currentStatus === "idle" ? "border-amber-500 text-amber-400 bg-amber-500/5" :
-                        "border-slate-800 text-slate-400 bg-slate-900"
+                        selectedMember.currentStatus === "active" ? "border-emerald-250 text-emerald-600 bg-emerald-50 animate-pulse" :
+                        selectedMember.currentStatus === "idle" ? "border-amber-250 text-amber-600 bg-amber-50" :
+                        "border-slate-200 text-slate-500 bg-slate-100"
                       }`}>
                         {selectedMember.name.substring(0, 2).toUpperCase()}
                       </div>
                       <div>
-                        <h3 className="text-md font-bold text-white flex items-center gap-2">
+                        <h3 className="text-md font-bold text-slate-900 flex items-center gap-2">
                           <span>{selectedMember.name}</span>
                           <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-semibold border ${
-                            selectedMember.currentStatus === "active" ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-400" :
-                            selectedMember.currentStatus === "idle" ? "bg-amber-500/10 border-amber-500/30 text-amber-400" :
-                            "bg-slate-800/80 border-slate-700 text-slate-400"
+                            selectedMember.currentStatus === "active" ? "bg-emerald-50 border-emerald-100 text-emerald-700" :
+                            selectedMember.currentStatus === "idle" ? "bg-amber-50 border-amber-100 text-amber-700" :
+                            "bg-slate-50 border-slate-200 text-slate-500"
                           }`}>
-                            <span className={`w-1 h-1 rounded-full ${selectedMember.currentStatus === "active" ? "bg-emerald-400" : selectedMember.currentStatus === "idle" ? "bg-amber-400" : "bg-slate-500"}`} />
+                            <span className={`w-1 h-1 rounded-full ${selectedMember.currentStatus === "active" ? "bg-emerald-500" : selectedMember.currentStatus === "idle" ? "bg-amber-500" : "bg-slate-400"}`} />
                             <span>{selectedMember.currentStatus.toUpperCase()}</span>
                           </span>
                         </h3>
-                        <p className="text-[11px] text-slate-400 mt-0.5">{selectedMember.email}</p>
+                        <p className="text-[11px] text-slate-550 text-slate-500 mt-0.5">{selectedMember.email}</p>
                         <p className="text-[9px] text-slate-500 uppercase tracking-wider mt-1">Role: {selectedMember.role}</p>
                       </div>
                     </div>
                     
                     {selectedMember.lastActive && (
                       <div className="text-right text-xs text-slate-500 space-y-1">
-                        <p>Last Sync: <span className="text-slate-300 font-medium">{formatDate(selectedMember.lastActive)} {formatTime(selectedMember.lastActive)}</span></p>
+                        <p>Last Sync: <span className="text-slate-700 font-semibold">{formatDate(selectedMember.lastActive)} {formatTime(selectedMember.lastActive)}</span></p>
                         {selectedMember.lastUrl && (
-                          <p className="truncate max-w-xs text-[10px] text-blue-400" title={selectedMember.lastUrl}>
+                          <p className="truncate max-w-xs text-[10px] text-blue-600" title={selectedMember.lastUrl}>
                             Active URL: <a href={selectedMember.lastUrl} target="_blank" rel="noreferrer" className="hover:underline">{selectedMember.lastUrl}</a>
                           </p>
                         )}
@@ -1170,15 +1111,15 @@ export default function DashboardContainer({ session }: { session: Session }) {
               })()}
 
               {/* Visual Horizontal Timeline Bar */}
-              <div className="bg-[#111827]/40 border border-white/5 rounded-2xl p-6 backdrop-blur-md space-y-4">
+              <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm shadow-slate-100/50 space-y-4">
                 <div>
-                  <h4 className="text-xs font-bold text-white uppercase tracking-wider">Visual Day Timeline</h4>
+                  <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider">Visual Day Timeline</h4>
                   <p className="text-[10px] text-slate-500 mt-0.5">Chronological active session blocks, paused breaks, and idle states today</p>
                 </div>
                 {(() => {
                   if (profileTimelineEvents.length === 0) {
                     return (
-                      <div className="h-10 bg-slate-900/30 border border-white/5 border-dashed rounded-xl flex items-center justify-center text-xs text-slate-500 italic">
+                      <div className="h-10 bg-slate-50 border border-slate-200 border-dashed rounded-xl flex items-center justify-center text-xs text-slate-500 italic">
                         No tracking milestones recorded yet today for this user.
                       </div>
                     )
@@ -1237,25 +1178,25 @@ export default function DashboardContainer({ session }: { session: Session }) {
                         <span>Span: {formatDurationMs(totalDuration)}</span>
                         <span>Latest: {new Date(lastTime).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>
                       </div>
-                      <div className="w-full h-5 bg-slate-900 border border-white/5 rounded-full overflow-hidden flex select-none">
+                      <div className="w-full h-5 bg-slate-100 border border-slate-200/85 rounded-full overflow-hidden flex select-none shadow-inner">
                         {blocks.map((block, idx) => (
                           <div 
                             key={idx}
                             style={{ width: `${block.widthPercent}%` }}
-                            className={`h-full border-r border-slate-950/20 last:border-0 hover:brightness-110 transition-all cursor-help ${
+                            className={`h-full border-r border-slate-900/10 last:border-0 hover:brightness-105 transition-all cursor-help ${
                               block.type === "active" ? "bg-emerald-500" :
-                              block.type === "paused" ? "bg-amber-500" : "bg-slate-600"
+                              block.type === "paused" ? "bg-amber-500" : "bg-slate-500 animate-pulse-slow"
                             }`}
                             title={block.title}
                           />
                         ))}
                       </div>
-                      <div className="flex gap-4 text-[10px] justify-center pt-1 border-t border-white/[0.02]">
-                        <span className="flex items-center gap-1.5 text-emerald-400">
+                      <div className="flex gap-4 text-[10px] justify-center pt-1 border-t border-slate-200/50">
+                        <span className="flex items-center gap-1.5 text-emerald-600 font-medium">
                           <span className="w-2.5 h-2.5 bg-emerald-500 rounded-full" />
                           <span>Active / Work time</span>
                         </span>
-                        <span className="flex items-center gap-1.5 text-amber-400">
+                        <span className="flex items-center gap-1.5 text-amber-600 font-medium">
                           <span className="w-2.5 h-2.5 bg-amber-500 rounded-full" />
                           <span>Paused breaks</span>
                         </span>
@@ -1279,77 +1220,42 @@ export default function DashboardContainer({ session }: { session: Session }) {
                     const selectedMember = teamMembers.find(m => m.email.toLowerCase() === selectedUser.toLowerCase())
                     return (
                       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-                        <div className="bg-[#111827]/40 border border-white/5 rounded-xl p-4 backdrop-blur-md">
-                          <span className="text-slate-400 text-[10px] font-bold uppercase tracking-wider block mb-1">Active Time</span>
-                          <h4 className="text-lg font-bold text-emerald-400">{formatDurationMs(selectedMember?.activeTimeTodayMs || 0)}</h4>
+                        <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm shadow-slate-100/50">
+                          <span className="text-slate-500 text-[10px] font-bold uppercase tracking-wider block mb-1">Active Time</span>
+                          <h4 className="text-lg font-bold text-emerald-600">{formatDurationMs(selectedMember?.activeTimeTodayMs || 0)}</h4>
                           <span className="text-[9px] text-slate-500">Working hours today</span>
                         </div>
-                        <div className="bg-[#111827]/40 border border-white/5 rounded-xl p-4 backdrop-blur-md">
-                          <span className="text-slate-400 text-[10px] font-bold uppercase tracking-wider block mb-1">Focus Ratio</span>
-                          <h4 className="text-lg font-bold text-purple-400">{selectedMember?.focusRatioToday || 0}%</h4>
+                        <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm shadow-slate-100/50">
+                          <span className="text-slate-500 text-[10px] font-bold uppercase tracking-wider block mb-1">Focus Ratio</span>
+                          <h4 className="text-lg font-bold text-purple-600">{selectedMember?.focusRatioToday || 0}%</h4>
                           <span className="text-[9px] text-slate-500">Work percentage today</span>
                         </div>
-                        <div className="bg-[#111827]/40 border border-white/5 rounded-xl p-4 backdrop-blur-md">
-                          <span className="text-slate-400 text-[10px] font-bold uppercase tracking-wider block mb-1">Done Today</span>
-                          <h4 className="text-lg font-bold text-white">{selectedMember?.tasksCompletedToday || 0} tasks</h4>
-                          <span className="text-[9px] text-slate-500">Completed tasks today</span>
+                        <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm shadow-slate-100/50">
+                          <span className="text-slate-500 text-[10px] font-bold uppercase tracking-wider block mb-1">Started Today</span>
+                          <h4 className="text-lg font-bold text-slate-800">{selectedMember?.tasksStartedToday || 0} tasks</h4>
+                          <span className="text-[9px] text-slate-500">Started tasks today</span>
                         </div>
-                        <div className="bg-[#111827]/40 border border-white/5 rounded-xl p-4 backdrop-blur-md">
-                          <span className="text-slate-400 text-[10px] font-bold uppercase tracking-wider block mb-1">Pause Breaks</span>
-                          <h4 className="text-lg font-bold text-amber-400">{selectedMember?.pauseCountToday || 0} times</h4>
+                        <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm shadow-slate-100/50">
+                          <span className="text-slate-500 text-[10px] font-bold uppercase tracking-wider block mb-1">Pause Breaks</span>
+                          <h4 className="text-lg font-bold text-amber-600">{selectedMember?.pauseCountToday || 0} times</h4>
                           <span className="text-[9px] text-slate-500">Pause states today</span>
                         </div>
                       </div>
                     )
                   })()}
 
-                  {/* Visual Screenshots Strip */}
-                  <div className="bg-[#111827]/40 border border-white/5 rounded-2xl p-6 backdrop-blur-md space-y-4">
-                    <div className="flex items-center justify-between border-b border-white/5 pb-2">
-                      <h4 className="text-xs font-bold text-white uppercase tracking-wider">Visual Audit Capture Strip</h4>
-                      <span className="text-[9px] text-slate-500">Recent desktop captures</span>
-                    </div>
-                    {profileScreenshots.length === 0 ? (
-                      <div className="h-24 flex items-center justify-center text-slate-500 text-xs italic bg-slate-900/20 border border-white/5 border-dashed rounded-xl">
-                        No recent screen captures saved for this user.
-                      </div>
-                    ) : (
-                      <div className="flex gap-4 overflow-x-auto pb-2 pr-1 scrollbar-thin">
-                        {profileScreenshots.map(screen => (
-                          <div 
-                            key={screen.id} 
-                            onClick={() => setLightboxImg({
-                              src: screen.imageUrl,
-                              title: screen.title,
-                              email: screen.email,
-                              time: `${formatDate(screen.timestamp)} ${formatTime(screen.timestamp)}`
-                            })}
-                            className="w-40 aspect-video rounded-lg overflow-hidden border border-white/5 cursor-pointer hover:border-blue-500/50 transition-all shrink-0 bg-slate-950 relative group"
-                          >
-                            <img src={screen.imageUrl} alt={screen.title} className="w-full h-full object-cover group-hover:scale-105 transition-transform" />
-                            <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                              <Eye className="w-5 h-5 text-white" />
-                            </div>
-                            <div className="absolute bottom-0 inset-x-0 bg-gradient-to-t from-black/80 to-transparent p-1.5 text-[8px] text-slate-400 truncate opacity-0 group-hover:opacity-100 transition-opacity">
-                              {formatTime(screen.timestamp)}
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
 
                   {/* Task Lifecycle Log Table */}
-                  <div className="bg-[#111827]/40 border border-white/5 rounded-2xl p-6 backdrop-blur-md space-y-4">
-                    <div className="flex items-center justify-between border-b border-white/5 pb-2">
-                      <h4 className="text-xs font-bold text-white uppercase tracking-wider">Task Progress History</h4>
+                  <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm shadow-slate-100/50 space-y-4">
+                    <div className="flex items-center justify-between border-b border-slate-200 pb-2">
+                      <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider">Task Progress History</h4>
                       <span className="text-[9px] text-slate-500 font-mono">Showing last 50 tasks</span>
                     </div>
 
                     <div className="overflow-x-auto max-h-[20rem]">
                       <table className="w-full text-left text-xs border-collapse">
                         <thead>
-                          <tr className="border-b border-white/5 text-slate-500 font-semibold uppercase tracking-wider">
+                          <tr className="border-b border-slate-200 text-slate-500 font-semibold uppercase tracking-wider">
                             <th className="py-2.5 px-3">Outcome</th>
                             <th className="py-2.5 px-3">Project ID</th>
                             <th className="py-2.5 px-3">Data ID</th>
@@ -1366,24 +1272,23 @@ export default function DashboardContainer({ session }: { session: Session }) {
                             </tr>
                           ) : (
                             profileTaskEvents.map(evt => (
-                              <tr key={evt.id} className="border-b border-white/[0.02] last:border-0 hover:bg-white/[0.01]">
+                              <tr key={evt.id} className="border-b border-slate-200/60 last:border-0 hover:bg-slate-50/40">
                                 <td className="py-2.5 px-3">
                                   <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[9px] font-semibold border ${
-                                    evt.event_type === "TASK_COMPLETED" ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-400" :
-                                    evt.event_type === "TASK_SKIPPED" ? "bg-amber-500/10 border-amber-500/30 text-amber-400" :
-                                    evt.event_type === "TASK_STARTED" ? "bg-blue-500/10 border-blue-500/30 text-blue-400" :
-                                    "bg-red-500/10 border-red-500/30 text-red-400"
+                                    evt.event_type === "TASK_SKIPPED" ? "bg-amber-50 border-amber-100 text-amber-700" :
+                                    evt.event_type === "TASK_STARTED" ? "bg-blue-50 border-blue-100 text-blue-700" :
+                                    "bg-red-50 border-red-100 text-red-700"
                                   }`}>
-                                    <span>{evt.event_type === "TASK_COMPLETED" ? "Completed" : evt.event_type === "TASK_SKIPPED" ? "Skipped" : evt.event_type === "TASK_STARTED" ? "Started" : "Left"}</span>
+                                    <span>{evt.event_type === "TASK_SKIPPED" ? "Skipped" : evt.event_type === "TASK_STARTED" ? "Started" : "Left"}</span>
                                   </span>
                                 </td>
-                                <td className="py-2.5 px-3 text-slate-300 font-mono select-all truncate max-w-[80px]" title={evt.project_id}>
+                                <td className="py-2.5 px-3 text-slate-700 font-mono select-all truncate max-w-[80px]" title={evt.project_id}>
                                   {evt.project_id || "N/A"}
                                 </td>
-                                <td className="py-2.5 px-3 text-slate-300 font-mono select-all truncate max-w-[80px]" title={evt.data_id}>
+                                <td className="py-2.5 px-3 text-slate-700 font-mono select-all truncate max-w-[80px]" title={evt.data_id}>
                                   {evt.data_id || "N/A"}
                                 </td>
-                                <td className="py-2.5 px-3 text-slate-400">
+                                <td className="py-2.5 px-3 text-slate-500">
                                   {formatDate(evt.timestamp)} {formatTime(evt.timestamp)}
                                 </td>
                                 <td className="py-2.5 px-3 text-right">
@@ -1405,9 +1310,9 @@ export default function DashboardContainer({ session }: { session: Session }) {
                 {/* Right Column: Site/Section times & Granular feed */}
                 <div className="lg:col-span-1 space-y-6">
                   {/* Website active times */}
-                  <div className="bg-[#111827]/40 border border-white/5 rounded-2xl p-6 backdrop-blur-md space-y-4">
+                  <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm shadow-slate-100/50 space-y-4">
                     <div>
-                      <h4 className="text-xs font-bold text-white uppercase tracking-wider">Active Domain Distribution</h4>
+                      <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider">Active Domain Distribution</h4>
                       <p className="text-[10px] text-slate-500 mt-0.5">Top websites visited today</p>
                     </div>
 
@@ -1425,10 +1330,10 @@ export default function DashboardContainer({ session }: { session: Session }) {
                               return (
                                 <div key={domain} className="space-y-1">
                                   <div className="flex items-center justify-between text-[10px]">
-                                    <span className="font-semibold text-slate-300 truncate max-w-[120px]" title={domain}>{domain}</span>
+                                    <span className="font-semibold text-slate-700 truncate max-w-[120px]" title={domain}>{domain}</span>
                                     <span className="text-slate-500 font-medium">{formatDurationMs(duration)} ({percent}%)</span>
                                   </div>
-                                  <div className="w-full bg-slate-900 border border-white/5 h-1.5 rounded-full overflow-hidden">
+                                  <div className="w-full bg-slate-100 border border-slate-200/60 h-1.5 rounded-full overflow-hidden">
                                     <div 
                                       style={{ width: `${percent}%` }}
                                       className="bg-blue-600 h-full rounded-full"
@@ -1443,9 +1348,9 @@ export default function DashboardContainer({ session }: { session: Session }) {
                   </div>
 
                   {/* Encord Page section breakdown */}
-                  <div className="bg-[#111827]/40 border border-white/5 rounded-2xl p-6 backdrop-blur-md space-y-4">
+                  <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm shadow-slate-100/50 space-y-4">
                     <div>
-                      <h4 className="text-xs font-bold text-white uppercase tracking-wider">Encord Pages Breakdown</h4>
+                      <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider">Encord Pages Breakdown</h4>
                       <p className="text-[10px] text-slate-500 mt-0.5">Total duration per section today</p>
                     </div>
 
@@ -1461,10 +1366,10 @@ export default function DashboardContainer({ session }: { session: Session }) {
                           return (
                             <div key={category} className="space-y-1">
                               <div className="flex items-center justify-between text-[10px]">
-                                <span className="font-semibold text-slate-300">{title}</span>
+                                <span className="font-semibold text-slate-700">{title}</span>
                                 <span className="text-slate-500 font-medium">{formatDurationMs(duration)} ({percent}%)</span>
                               </div>
-                              <div className="w-full bg-slate-900 border border-white/5 h-1.5 rounded-full overflow-hidden">
+                              <div className="w-full bg-slate-100 border border-slate-200/60 h-1.5 rounded-full overflow-hidden">
                                 <div 
                                   style={{ width: `${percent}%` }}
                                   className="bg-purple-500 h-full rounded-full"
@@ -1478,10 +1383,10 @@ export default function DashboardContainer({ session }: { session: Session }) {
                   </div>
 
                   {/* Granular activity timeline logs dropdown list */}
-                  <div className="bg-[#111827]/40 border border-white/5 rounded-2xl p-6 backdrop-blur-md space-y-4">
-                    <div className="flex items-center justify-between border-b border-white/5 pb-2">
-                      <h4 className="text-xs font-bold text-white uppercase tracking-wider">Granular Chronology Feed</h4>
-                      <span className="text-[9px] bg-slate-800 text-slate-400 px-1.5 py-0.5 rounded">Last 300</span>
+                  <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm shadow-slate-100/50 space-y-4">
+                    <div className="flex items-center justify-between border-b border-slate-200 pb-2">
+                      <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider">Granular Chronology Feed</h4>
+                      <span className="text-[9px] bg-slate-50 border border-slate-200/60 text-slate-500 px-1.5 py-0.5 rounded">Last 300</span>
                     </div>
 
                     <div className="max-h-[30rem] overflow-y-auto space-y-3.5 pr-1 text-xs">
@@ -1489,142 +1394,28 @@ export default function DashboardContainer({ session }: { session: Session }) {
                         <p className="text-center text-slate-500 italic py-6">No telemetry logs found.</p>
                       ) : (
                         timelineLogs.map(log => (
-                          <div key={log.id} className="border-l border-blue-500/20 pl-3 py-1 space-y-1 relative group">
-                            <div className="absolute -left-[5.5px] top-1.5 w-2.5 h-2.5 bg-slate-950 border border-blue-500/50 rounded-full" />
+                          <div key={log.id} className="border-l border-blue-200/60 pl-3 py-1 space-y-1 relative group">
+                            <div className="absolute -left-[5.5px] top-1.5 w-2.5 h-2.5 bg-white border border-blue-400 rounded-full" />
                             <div className="flex justify-between items-center text-[10px]">
-                              <span className="font-bold text-slate-300 flex items-center gap-1.5">
+                              <span className="font-bold text-slate-700 flex items-center gap-1.5">
                                 {getEventIcon(log.event_type)}
                                 <span>{log.event_type}</span>
                               </span>
                               <span className="text-slate-500 font-mono">{formatTime(log.timestamp)}</span>
                             </div>
-                            {log.title && <p className="text-slate-400 font-medium truncate" title={log.title}>{log.title}</p>}
-                            {log.url && <p className="text-[10px] text-blue-400 truncate hover:underline" title={log.url}><a href={log.url} target="_blank" rel="noreferrer">{log.url}</a></p>}
+                            {log.title && <p className="text-slate-600 font-medium truncate" title={log.title}>{log.title}</p>}
+                            {log.url && <p className="text-[10px] text-blue-600 truncate hover:underline" title={log.url}><a href={log.url} target="_blank" rel="noreferrer">{log.url}</a></p>}
                           </div>
                         ))
                       )}
                     </div>
                   </div>
                 </div>
-
               </div>
-            </div>
-          )}
-
-          {/* ========================================================
-              SCREENSHOTS TAB
-             ======================================================== */}
-          {activeTab === "screenshots" && (
-            <div className="space-y-6">
-              <div className="bg-[#111827]/40 border border-white/5 rounded-2xl p-4 flex items-center justify-between backdrop-blur-md">
-                <span className="text-xs text-slate-400 font-semibold uppercase tracking-wider">Screenshot Feed Filtering</span>
-                <span className="text-[10px] text-slate-500">Only visual evidence on non-private sites is recorded</span>
-              </div>
-
-              {isLoadingScreenshots ? (
-                <div className="flex flex-col items-center justify-center py-20 text-slate-400 gap-3">
-                  <RotateCw className="w-8 h-8 animate-spin text-blue-500" />
-                  <span className="text-sm">Loading visual captures...</span>
-                </div>
-              ) : screenshots.length === 0 ? (
-                <div className="flex flex-col items-center justify-center py-20 text-slate-500 text-xs border border-white/[0.02] border-dashed rounded-xl">
-                  No visual screenshots recorded yet. Verify that active sessions are running.
-                </div>
-              ) : (
-                <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-                  {screenshots.map(screen => {
-                    const blocked = isBlockedTab(screen.url)
-                    return (
-                      <div key={screen.id} className="bg-[#111827]/40 border border-white/5 rounded-xl overflow-hidden relative group hover:border-white/10 transition-all flex flex-col h-full">
-                        {/* Thumbnail View */}
-                        <div className="relative aspect-video bg-black flex items-center justify-center overflow-hidden border-b border-white/5 shrink-0">
-                          {blocked ? (
-                            <div className="absolute inset-0 flex flex-col items-center justify-center p-4 bg-slate-900 text-center gap-2">
-                              <AlertTriangle className="w-6 h-6 text-yellow-500 animate-bounce" />
-                              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Private Blocked Page</p>
-                              <p className="text-[8px] text-slate-600">Visuals excluded on WhatsApp/Instagram</p>
-                            </div>
-                          ) : (
-                            <>
-                              <img
-                                src={screen.imageUrl}
-                                alt={screen.title}
-                                className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-                                loading="lazy"
-                              />
-                              <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                                <button
-                                  onClick={() => setLightboxImg({
-                                    src: screen.imageUrl,
-                                    title: screen.title,
-                                    email: screen.email,
-                                    time: `${formatDate(screen.timestamp)} ${formatTime(screen.timestamp)}`
-                                  })}
-                                  className="p-2 bg-blue-600 rounded-xl text-white shadow-lg flex items-center gap-1 text-xs font-semibold cursor-pointer hover:bg-blue-500 active:scale-95 transition-all"
-                                >
-                                  <Eye className="w-3.5 h-3.5" />
-                                  <span>View Screen</span>
-                                </button>
-                              </div>
-                            </>
-                          )}
-                        </div>
-
-                        {/* Screenshot Metadata Info */}
-                        <div className="p-4 flex-1 flex flex-col justify-between">
-                          <div className="space-y-1">
-                            <p className="text-[9px] text-blue-400 font-bold uppercase tracking-wider truncate" title={screen.email}>
-                              {screen.email.split("@")[0]}
-                            </p>
-                            <p className="text-xs font-bold text-slate-200 truncate" title={screen.title}>
-                              {screen.title}
-                            </p>
-                            <p className="text-[10px] text-slate-500 truncate" title={screen.url}>
-                              {screen.url}
-                            </p>
-                          </div>
-                          <div className="border-t border-white/5 pt-3 mt-3 flex items-center justify-between text-[9px] text-slate-500">
-                            <span className="font-semibold">{formatTime(screen.timestamp)}</span>
-                            <span>{formatDate(screen.timestamp)}</span>
-                          </div>
-                        </div>
-                      </div>
-                    )
-                  })}
-                </div>
-              )}
             </div>
           )}
         </div>
       </main>
-
-      {/* Lightbox Modal */}
-      {lightboxImg && (
-        <div className="fixed inset-0 z-50 bg-black/95 backdrop-blur-sm flex flex-col items-center justify-center p-6 select-none animate-fadeIn">
-          {/* Header Info */}
-          <div className="w-full max-w-6xl flex items-center justify-between text-slate-400 text-xs mb-3">
-            <div className="overflow-hidden mr-4">
-              <h4 className="text-white font-bold text-sm truncate">{lightboxImg.title}</h4>
-              <p className="text-[10px] text-slate-500 mt-0.5 truncate">User: {lightboxImg.email} | Captured: {lightboxImg.time}</p>
-            </div>
-            <button
-              onClick={() => setLightboxImg(null)}
-              className="p-2 bg-slate-800 hover:bg-slate-700 active:scale-95 text-slate-300 hover:text-white rounded-xl transition-all cursor-pointer flex items-center justify-center"
-            >
-              <X className="w-4 h-4" />
-            </button>
-          </div>
-
-          {/* Image Loader Frame */}
-          <div className="w-full max-w-6xl max-h-[85vh] bg-slate-900 border border-white/5 rounded-2xl overflow-hidden shadow-2xl flex items-center justify-center">
-            <img
-              src={lightboxImg.src}
-              alt={lightboxImg.title}
-              className="w-auto h-auto max-w-full max-h-[85vh] object-contain select-text"
-            />
-          </div>
-        </div>
-      )}
     </div>
   )
 }

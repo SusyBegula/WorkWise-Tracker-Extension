@@ -98,30 +98,8 @@ export async function GET(request: Request) {
       }
     })
 
-    // 4. Fetch screenshots (last 12)
-    const screenshots = await querySQLite<{
-      id: number
-      email: string
-      url: string
-      title: string
-      timestamp: string
-    }>(
-      `SELECT id, email, url, title, timestamp 
-       FROM screenshots 
-       WHERE email = ? 
-       ORDER BY timestamp DESC 
-       LIMIT 12`,
-      [targetEmail]
-    )
+    const mappedScreenshots: any[] = []
 
-    const mappedScreenshots = screenshots.map(s => ({
-      id: s.id,
-      email: s.email,
-      url: s.url,
-      title: s.title,
-      timestamp: s.timestamp,
-      imageUrl: `/api/telemetry/screenshots/image?id=${s.id}`
-    }))
 
     // 5. Fetch raw daily logs to calculate URL domains and Encord section times
     const todayLogs = await querySQLite<{

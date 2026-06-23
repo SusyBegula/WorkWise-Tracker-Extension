@@ -1,10 +1,28 @@
 const BACKEND_URL = "http://localhost:3000/api/activity"
-const SCREENSHOT_ALARM_NAME = "workwise-screenshot-alarm"
-const SCREENSHOT_INTERVAL_MINUTES = 1.0 // 1.0 minutes for testing; user can set to 15.0
 
 // Event Buffering Settings
 const FLUSH_ALARM_NAME = "workwise-flush-alarm"
-const FLUSH_INTERVAL_MINUTES = 0.5 // Flush every 30 seconds
+const FLUSH_INTERVAL_MINUTES = 0.5 // Flush fallback every 30 seconds
+
+let flushIntervalId: NodeJS.Timeout | null = null
+
+function startFlushTimer() {
+  if (flushIntervalId) {
+    clearInterval(flushIntervalId)
+  }
+  flushIntervalId = setInterval(() => {
+    flushBufferedEvents()
+  }, 1000)
+  console.log("[Activity Tracker] 1-second flush interval timer started.")
+}
+
+function stopFlushTimer() {
+  if (flushIntervalId) {
+    clearInterval(flushIntervalId)
+    flushIntervalId = null
+    console.log("[Activity Tracker] 1-second flush interval timer stopped.")
+  }
+}
 
 // Re-register alarms on startup/service worker wakeup if the session was active
 async function restoreSessionAlarms() {
@@ -12,23 +30,19 @@ async function restoreSessionAlarms() {
 
   const data = await chrome.storage.local.get(["sessionStatus"])
   if (data.sessionStatus === "active") {
-    console.log("[Activity Tracker] Active session detected on startup. Restoring alarms...")
+    console.log("[Activity Tracker] Active session detected on startup. Restoring alarms and timers...")
     
-    chrome.alarms.get(SCREENSHOT_ALARM_NAME, (alarm) => {
-      if (!alarm) {
-        chrome.alarms.create(SCREENSHOT_ALARM_NAME, { periodInMinutes: SCREENSHOT_INTERVAL_MINUTES })
-        console.log(`[Activity Tracker] Re-registered missing screenshot alarm after startup.`)
-      }
-    })
-
     chrome.alarms.get(FLUSH_ALARM_NAME, (alarm) => {
       if (!alarm) {
         chrome.alarms.create(FLUSH_ALARM_NAME, { periodInMinutes: FLUSH_INTERVAL_MINUTES })
         console.log(`[Activity Tracker] Re-registered missing flush alarm after startup.`)
       }
     })
+
+    startFlushTimer()
   }
 }
+
 
 // Run restoration routine on service worker initialization
 restoreSessionAlarms()
@@ -166,62 +180,6 @@ function isBlockedUrl(url: string | null): boolean {
   }
 }
 
-// Helper to capture active tab screen visual data and send to backend
-async function captureAndSendScreenshot() {
-  console.log("[Activity Tracker] captureAndSendScreenshot triggered")
-  const data = await chrome.storage.local.get("sessionStatus")
-  if (data.sessionStatus !== "active") {
-    console.log("[Activity Tracker] Screenshot capture skipped: Session is not active.")
-    return
-  }
-
-  console.log("[Activity Tracker] Finding active normal window...")
-  chrome.windows.getAll({ populate: false }, (windows) => {
-    if (chrome.runtime.lastError || !windows || windows.length === 0) {
-      console.warn("[Activity Tracker] Failed to query windows:", chrome.runtime.lastError)
-      return
-    }
-
-    // Find the focused normal window, or fallback to the first normal window
-    const normalWindow = windows.find(w => w.type === "normal" && w.focused) || windows.find(w => w.type === "normal")
-    if (!normalWindow || !normalWindow.id) {
-      console.warn("[Activity Tracker] No normal browser window found to capture.")
-      return
-    }
-
-    console.log(`[Activity Tracker] Capturing visible tab in window ${normalWindow.id}...`)
-    chrome.tabs.query({ active: true, windowId: normalWindow.id }, (tabs) => {
-      let tabTitle = "unknown"
-      let tabUrl = null
-      
-      if (!chrome.runtime.lastError && tabs && tabs.length > 0) {
-        tabTitle = tabs[0].title || "unknown"
-        tabUrl = tabs[0].url || null
-      }
-
-      // Check if URL is blocklisted for privacy
-      if (isBlockedUrl(tabUrl)) {
-        console.log(`[Activity Tracker] Screenshot skipped: Active tab URL is blocklisted for privacy.`)
-        return
-      }
-
-      chrome.tabs.captureVisibleTab(
-        normalWindow.id,
-        { format: "jpeg", quality: 40 },
-        (dataUrl) => {
-          if (chrome.runtime.lastError) {
-            console.warn("[Activity Tracker] Screenshot capture failed:", chrome.runtime.lastError.message)
-            return
-          }
-          if (dataUrl) {
-            console.log("[Activity Tracker] Screenshot captured successfully. Sending to backend...")
-            logActivityImmediate("SCREENSHOT_CAPTURED", tabUrl, tabTitle, { image: dataUrl })
-          }
-        }
-      )
-    })
-  })
-}
 
 // State machine transition helper
 async function transitionSessionState(nextStatus: "inactive" | "active" | "paused") {
@@ -271,20 +229,13 @@ async function transitionSessionState(nextStatus: "inactive" | "active" | "pause
         bufferedEvents: []
       })
 
-      // Setup periodic screenshot alarm
-      chrome.alarms.clear(SCREENSHOT_ALARM_NAME, () => {
-        chrome.alarms.create(SCREENSHOT_ALARM_NAME, { periodInMinutes: SCREENSHOT_INTERVAL_MINUTES })
-        console.log(`[Activity Tracker] Scheduled screenshot alarm: ${SCREENSHOT_ALARM_NAME} every ${SCREENSHOT_INTERVAL_MINUTES} min.`)
-      })
-
       // Setup periodic flush alarm
       chrome.alarms.clear(FLUSH_ALARM_NAME, () => {
         chrome.alarms.create(FLUSH_ALARM_NAME, { periodInMinutes: FLUSH_INTERVAL_MINUTES })
         console.log(`[Activity Tracker] Scheduled flush alarm: ${FLUSH_ALARM_NAME} every ${FLUSH_INTERVAL_MINUTES} min.`)
       })
 
-      // Capture a screenshot immediately on session start (after 2 seconds delay)
-      setTimeout(captureAndSendScreenshot, 2000)
+      startFlushTimer()
 
       // Send start event to backend immediately
       await logActivityImmediate("SESSION_STARTED", null, null, {})
@@ -306,19 +257,12 @@ async function transitionSessionState(nextStatus: "inactive" | "active" | "pause
         pauseHistory
       })
 
-      // Re-initialize alarms
-      chrome.alarms.clear(SCREENSHOT_ALARM_NAME, () => {
-        chrome.alarms.create(SCREENSHOT_ALARM_NAME, { periodInMinutes: SCREENSHOT_INTERVAL_MINUTES })
-        console.log(`[Activity Tracker] Rescheduled screenshot alarm: ${SCREENSHOT_ALARM_NAME} every ${SCREENSHOT_INTERVAL_MINUTES} min.`)
-      })
-
       chrome.alarms.clear(FLUSH_ALARM_NAME, () => {
         chrome.alarms.create(FLUSH_ALARM_NAME, { periodInMinutes: FLUSH_INTERVAL_MINUTES })
         console.log(`[Activity Tracker] Rescheduled flush alarm: ${FLUSH_ALARM_NAME} every ${FLUSH_INTERVAL_MINUTES} min.`)
       })
 
-      // Capture a screenshot immediately on resume (after 2 seconds delay)
-      setTimeout(captureAndSendScreenshot, 2000)
+      startFlushTimer()
 
       await logActivityImmediate("SESSION_RESUMED", null, null, {
         pauseDurationMs: pauseDuration
@@ -337,9 +281,10 @@ async function transitionSessionState(nextStatus: "inactive" | "active" | "pause
         pauseCount: pauseCount + 1
       })
 
-      // Disable screenshot and flush alarms
-      chrome.alarms.clear(SCREENSHOT_ALARM_NAME)
+      // Disable flush alarms
       chrome.alarms.clear(FLUSH_ALARM_NAME)
+
+      stopFlushTimer()
 
       // Send pause event immediately (and flush any pending interaction logs)
       await logActivityImmediate("SESSION_PAUSED", null, null, {
@@ -365,9 +310,10 @@ async function transitionSessionState(nextStatus: "inactive" | "active" | "pause
 
     const totalSessionTime = now - sessionStartTime
 
-    // Disable screenshot and flush alarms
-    chrome.alarms.clear(SCREENSHOT_ALARM_NAME)
+    // Disable flush alarms
     chrome.alarms.clear(FLUSH_ALARM_NAME)
+
+    stopFlushTimer()
 
     // Flush any remaining active logs before resetting storage
     await flushBufferedEvents()
@@ -396,6 +342,7 @@ async function transitionSessionState(nextStatus: "inactive" | "active" | "pause
       totalEvents: eventCount
     })
   }
+
 }
 
 // Helper to safely get tab details
@@ -469,12 +416,11 @@ chrome.idle.onStateChanged.addListener(async (newState) => {
 // Listen for alarms
 chrome.alarms.onAlarm.addListener((alarm) => {
   console.log(`[Activity Tracker] Alarm event received: ${alarm.name}`)
-  if (alarm.name === SCREENSHOT_ALARM_NAME) {
-    captureAndSendScreenshot()
-  } else if (alarm.name === FLUSH_ALARM_NAME) {
+  if (alarm.name === FLUSH_ALARM_NAME) {
     flushBufferedEvents()
   }
 })
+
 
 // Listen for messages from content scripts or popup UI
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
