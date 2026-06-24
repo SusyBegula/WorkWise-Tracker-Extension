@@ -1,4 +1,5 @@
-const BACKEND_URL = "http://localhost:3000/api/activity"
+const API_BASE = process.env.PLASMO_PUBLIC_API_BASE || "http://localhost:3000"
+const BACKEND_URL = `${API_BASE}/api/activity`
 
 // Event Buffering Settings
 const FLUSH_ALARM_NAME = "workwise-flush-alarm"

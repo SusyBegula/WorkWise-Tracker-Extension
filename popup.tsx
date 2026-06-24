@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react"
 import "./popup.css"
 
+const API_BASE = process.env.PLASMO_PUBLIC_API_BASE || "http://localhost:3000"
+
 function IndexPopup() {
   const [status, setStatus] = useState<"inactive" | "active" | "paused">("inactive")
   const [sessionStartTime, setSessionStartTime] = useState(0)
@@ -84,7 +86,7 @@ function IndexPopup() {
     setIsLoading(true)
 
     try {
-      const response = await fetch("http://localhost:3000/api/login", {
+      const response = await fetch(`${API_BASE}/api/login`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json"

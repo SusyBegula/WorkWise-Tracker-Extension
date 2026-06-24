@@ -1,0 +1,27 @@
+# Render Blueprint for the WorkWise telemetry backend.
+# Deploy with: Render Dashboard → New → Blueprint → point at this repo.
+# All secrets are marked `sync: false` — set their values in the Render
+# Dashboard (Service → Environment), never commit them.
+services:
+  - type: web
+    name: workwise-telemetry-backend
+    runtime: docker
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: ./backend
+    plan: starter # always-on, no cold-start sleep
+    healthCheckPath: /health
+    envVars:
+      - key: PORT
+        value: 3000
+      # Read-only Neon production DB (auth / user whitelist)
+      - key: DATABASE_URL
+        sync: false
+      # New writable Postgres dedicated to telemetry
+      - key: TELEMETRY_DATABASE_URL
+        sync: false
+      # Long random string for signing JWTs
+      - key: JWT_SECRET
+        sync: false
+      # Comma-separated chrome-extension://<id> origins allowed by CORS
+      - key: ALLOWED_EXTENSION_ORIGIN
+        sync: false

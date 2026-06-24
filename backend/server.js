@@ -1,11 +1,11 @@
 import express from "express"
 import cors from "cors"
-import fs from "fs"
 import path from "path"
 import dotenv from "dotenv"
 import pg from "pg"
 import bcrypt from "bcryptjs"
-import sqlite3 from "sqlite3"
+import jwt from "jsonwebtoken"
+import rateLimit from "express-rate-limit"
 import { fileURLToPath } from "url"
 
 const __filename = fileURLToPath(import.meta.url)
@@ -16,84 +16,127 @@ dotenv.config({ path: path.join(__dirname, ".env") })
 
 const app = express()
 const PORT = process.env.PORT || 3000
+const JWT_SECRET = process.env.JWT_SECRET
 
+if (!JWT_SECRET) {
+  console.error("FATAL: JWT_SECRET is not set. Refusing to start.")
+  process.exit(1)
+}
 
-app.use(cors())
-app.use(express.json({ limit: "10mb" })) // Increase payload limit to handle image data
+// Behind Render's proxy, trust the first hop so rate-limit sees real client IPs
+app.set("trust proxy", 1)
 
-// Setup PostgreSQL Connection Pool
+// Restrict CORS to the extension origin(s). Requests with no Origin
+// (curl, health checks, some service-worker fetches) are allowed through;
+// the JWT is the real authentication boundary.
+const allowedOrigins = (process.env.ALLOWED_EXTENSION_ORIGIN || "")
+  .split(",")
+  .map((o) => o.trim())
+  .filter(Boolean)
+app.use(
+  cors({
+    origin: (origin, cb) => {
+      if (!origin || allowedOrigins.length === 0 || allowedOrigins.includes(origin)) {
+        return cb(null, true)
+      }
+      return cb(new Error("Not allowed by CORS"))
+    }
+  })
+)
+app.use(express.json({ limit: "1mb" }))
+
 const { Pool } = pg
-const pool = new Pool({
-  connectionString: process.env.DATABASE_URL
-})
+
+// Build a pool config for managed Postgres (Supabase/Neon/Render). These
+// providers terminate TLS with cert chains node-postgres won't verify by
+// default. Newer pg also treats `sslmode=require` in the URL as full
+// verification, which rejects Supabase's self-signed chain — so we strip
+// sslmode/channel_binding from the URL and govern TLS via our own ssl option.
+function buildPoolConfig(connectionString, extra = {}) {
+  const cfg = { ssl: { rejectUnauthorized: false }, ...extra }
+  if (connectionString) {
+    try {
+      const u = new URL(connectionString)
+      u.searchParams.delete("sslmode")
+      u.searchParams.delete("channel_binding")
+      cfg.connectionString = u.toString()
+    } catch {
+      cfg.connectionString = connectionString
+    }
+  }
+  return cfg
+}
+
+// Connection pool for auth (read-only production DB)
+const pool = new Pool(buildPoolConfig(process.env.DATABASE_URL))
 
 // Handle unexpected errors on idle pool clients
 pool.on("error", (err) => {
   console.error("Unexpected error on idle database client", err)
 })
 
-// Setup local SQLite Database for telemetry logs
-const SQLITE_DB_PATH = path.join(__dirname, "..", "shared-telemetry.db")
-const db = new sqlite3.Database(SQLITE_DB_PATH, (err) => {
-  if (err) {
-    console.error("Failed to connect to SQLite database:", err)
-  } else {
-    console.log(`Connected to local SQLite database: ${SQLITE_DB_PATH}`)
-    initializeSQLiteTables()
-  }
+// Setup a separate, writable Postgres pool for telemetry. Kept fully
+// separate from the read-only auth DB above. Connection string should carry
+// ?sslmode=require for managed providers (Neon/Render).
+const telemetryPool = new Pool(
+  buildPoolConfig(process.env.TELEMETRY_DATABASE_URL, {
+    max: 10,
+    idleTimeoutMillis: 30000,
+    connectionTimeoutMillis: 5000
+  })
+)
+
+telemetryPool.on("error", (err) => {
+  console.error("Unexpected error on idle telemetry database client", err)
 })
 
-// Initialize local SQLite tables for telemetry
-function initializeSQLiteTables() {
-  db.serialize(() => {
-    db.run(`
-      CREATE TABLE IF NOT EXISTS activity_logs (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        email TEXT,
-        event_type TEXT,
-        url TEXT,
-        title TEXT,
-        timestamp TEXT,
-        metadata TEXT
-      )
-    `)
-    // Dedicated task lifecycle table for fast, indexed dashboard queries
-    db.run(`
-      CREATE TABLE IF NOT EXISTS task_events (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        email TEXT NOT NULL,
-        event_type TEXT NOT NULL,
-        project_id TEXT,
-        data_id TEXT,
-        url TEXT,
-        title TEXT,
-        timestamp TEXT NOT NULL,
-        metadata TEXT
-      )
-    `)
-    // Index for common dashboard queries
-    db.run(`CREATE INDEX IF NOT EXISTS idx_task_events_email ON task_events (email)`)
-    db.run(`CREATE INDEX IF NOT EXISTS idx_task_events_type  ON task_events (event_type)`)
-    db.run(`CREATE INDEX IF NOT EXISTS idx_task_events_data  ON task_events (data_id)`)
-    db.run(`CREATE INDEX IF NOT EXISTS idx_activity_email    ON activity_logs (email)`)
-    db.run(`CREATE INDEX IF NOT EXISTS idx_activity_type     ON activity_logs (event_type)`)
-    console.log("Local SQLite telemetry tables initialized successfully.")
-  })
+// Initialize telemetry tables in Postgres (idempotent)
+async function initializeTelemetryTables() {
+  await telemetryPool.query(`
+    CREATE TABLE IF NOT EXISTS activity_logs (
+      id         BIGSERIAL PRIMARY KEY,
+      email      TEXT,
+      event_type TEXT,
+      url        TEXT,
+      title      TEXT,
+      timestamp  TEXT,
+      metadata   JSONB
+    )
+  `)
+  // Dedicated task lifecycle table for fast, indexed dashboard queries
+  await telemetryPool.query(`
+    CREATE TABLE IF NOT EXISTS task_events (
+      id         BIGSERIAL PRIMARY KEY,
+      email      TEXT NOT NULL,
+      event_type TEXT NOT NULL,
+      project_id TEXT,
+      data_id    TEXT,
+      url        TEXT,
+      title      TEXT,
+      timestamp  TEXT NOT NULL,
+      metadata   JSONB
+    )
+  `)
+  // Indexes for common dashboard queries
+  await telemetryPool.query(`CREATE INDEX IF NOT EXISTS idx_task_events_email ON task_events (email)`)
+  await telemetryPool.query(`CREATE INDEX IF NOT EXISTS idx_task_events_type  ON task_events (event_type)`)
+  await telemetryPool.query(`CREATE INDEX IF NOT EXISTS idx_task_events_data  ON task_events (data_id)`)
+  await telemetryPool.query(`CREATE INDEX IF NOT EXISTS idx_activity_email    ON activity_logs (email)`)
+  await telemetryPool.query(`CREATE INDEX IF NOT EXISTS idx_activity_type     ON activity_logs (event_type)`)
+  await telemetryPool.query(`CREATE INDEX IF NOT EXISTS idx_activity_ts       ON activity_logs (timestamp)`)
+  await telemetryPool.query(`CREATE INDEX IF NOT EXISTS idx_task_events_ts    ON task_events (timestamp)`)
+  console.log("Telemetry Postgres tables initialized successfully.")
 }
 
 
-// Helper to insert activity log into SQLite
-function logToSQLite(email, eventType, url, title, timestamp, metadata) {
-  const query = `
-    INSERT INTO activity_logs (email, event_type, url, title, timestamp, metadata)
-    VALUES (?, ?, ?, ?, ?, ?)
-  `
+// Helper to insert an activity log row into telemetry Postgres
+async function logActivity(email, eventType, url, title, timestamp, metadata) {
   const metadataStr = metadata ? JSON.stringify(metadata) : null
-  db.run(query, [email, eventType, url, title, timestamp, metadataStr], function (err) {
-    if (err) {
-      console.error("Failed to write activity log to local SQLite:", err)
-    }
-  })
+  await telemetryPool.query(
+    `INSERT INTO activity_logs (email, event_type, url, title, timestamp, metadata)
+     VALUES ($1, $2, $3, $4, $5, $6)`,
+    [email, eventType, url, title, timestamp, metadataStr]
+  )
 }
 
 
@@ -112,20 +155,16 @@ async function emailExists(email) {
   }
 }
 
-// Mock token parsing utility
-function decodeMockToken(token) {
-  if (!token || !token.startsWith("Bearer ")) return null
-  const tokenStr = token.substring(7) // Remove 'Bearer '
+// Verify a signed JWT from the Authorization header. Returns the decoded
+// payload, or null if missing/invalid/expired.
+function verifyToken(authHeader) {
+  if (!authHeader || !authHeader.startsWith("Bearer ")) return null
+  const tokenStr = authHeader.substring(7) // Remove 'Bearer '
   try {
-    const parts = tokenStr.split(".")
-    if (parts.length === 3) {
-      const payloadJson = Buffer.from(parts[1], "base64").toString("utf8")
-      return JSON.parse(payloadJson)
-    }
+    return jwt.verify(tokenStr, JWT_SECRET, { algorithms: ["HS256"] })
   } catch (e) {
     return null
   }
-  return null
 }
 
 // Health check endpoint
@@ -133,8 +172,26 @@ app.get("/health", (req, res) => {
   res.json({ status: "ok" })
 })
 
+// Strict rate limiter on login to blunt credential stuffing against bcrypt
+const loginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Too many login attempts. Please try again later." }
+})
+
+// Looser limiter on telemetry ingestion to cap pathological floods.
+// One user batches every ~1-30s, so a generous per-IP cap is safe.
+const activityLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 120,
+  standardHeaders: true,
+  legacyHeaders: false
+})
+
 // Endpoint for user login
-app.post("/api/login", async (req, res) => {
+app.post("/api/login", loginLimiter, async (req, res) => {
   const { email, password } = req.body
 
   if (!email) {
@@ -162,10 +219,11 @@ app.post("/api/login", async (req, res) => {
       return res.status(401).json({ error: "Invalid password." })
     }
 
-    // Generate mock JWT token: mock-header.payloadBase64.mock-signature
-    const payload = { email: normalizedEmail, timestamp: Date.now() }
-    const base64Payload = Buffer.from(JSON.stringify(payload)).toString("base64")
-    const token = `mock-header.${base64Payload}.mock-signature`
+    // Generate a signed JWT (HS256). The client treats this token as opaque.
+    const token = jwt.sign({ email: normalizedEmail }, JWT_SECRET, {
+      algorithm: "HS256",
+      expiresIn: "12h"
+    })
 
     console.log(`\n\x1b[32m🔑 User logged in successfully: ${normalizedEmail}\x1b[0m\n`)
 
@@ -192,9 +250,9 @@ function formatDuration(ms) {
 }
 
 // Endpoint to receive activity data from the extension
-app.post("/api/activity", async (req, res) => {
+app.post("/api/activity", activityLimiter, async (req, res) => {
   const authHeader = req.headers.authorization
-  const decoded = decodeMockToken(authHeader)
+  const decoded = verifyToken(authHeader)
 
   if (!decoded || !decoded.email) {
     console.log(`\x1b[31m⚠️  Unauthorized activity attempt: Missing or invalid token.\x1b[0m`)
@@ -226,29 +284,33 @@ app.post("/api/activity", async (req, res) => {
   const bold = "\x1b[1m"
   const gray = "\x1b[90m"
 
+  const TASK_LIFECYCLE_EVENTS = ["TASK_STARTED", "TASK_SKIPPED", "TASK_EXITED"]
+
+  // Collect all DB writes for the batch and await them together below
+  const insertPromises = []
+
   for (const event of events) {
     const { eventType, url, title, timestamp, metadata } = event
     const timeStr = new Date(timestamp).toLocaleTimeString()
 
-    // Write all events to SQLite
-    logToSQLite(employeeEmail, eventType, url, title, timestamp, metadata)
+    // Write all events to the telemetry Postgres
+    insertPromises.push(logActivity(employeeEmail, eventType, url, title, timestamp, metadata))
 
 
     // Write Encord task lifecycle events to the dedicated task_events table
-    const TASK_LIFECYCLE_EVENTS = ["TASK_STARTED", "TASK_SKIPPED", "TASK_EXITED"]
     if (TASK_LIFECYCLE_EVENTS.includes(eventType)) {
       const projectId = metadata?.projectId ?? null
       const dataId = metadata?.dataId ?? null
-      const taskQuery = `
-        INSERT INTO task_events (email, event_type, project_id, data_id, url, title, timestamp, metadata)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-      `
-      db.run(taskQuery, [
-        employeeEmail, eventType, projectId, dataId, url, title, timestamp,
-        metadata ? JSON.stringify(metadata) : null
-      ], function (err) {
-        if (err) console.error("Failed to write task event to SQLite:", err)
-      })
+      insertPromises.push(
+        telemetryPool.query(
+          `INSERT INTO task_events (email, event_type, project_id, data_id, url, title, timestamp, metadata)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+          [
+            employeeEmail, eventType, projectId, dataId, url, title, timestamp,
+            metadata ? JSON.stringify(metadata) : null
+          ]
+        )
+      )
     }
 
 
@@ -313,10 +375,27 @@ app.post("/api/activity", async (req, res) => {
     }
   }
 
+  // Persist the whole batch. If any insert fails, return 500 so the
+  // extension re-buffers the events instead of dropping them.
+  try {
+    await Promise.all(insertPromises)
+  } catch (error) {
+    console.error("Failed to write telemetry batch to Postgres:", error)
+    return res.status(500).json({ error: "Failed to persist telemetry" })
+  }
+
   res.status(200).json({ success: true })
 })
 
-app.listen(PORT, () => {
-  console.log(`\x1b[32m\x1b[1m🚀 Activity Logging Server is running on http://localhost:${PORT}\x1b[0m`)
-  console.log(`\x1b[90mWaiting for browser events from extension...\x1b[0m\n`)
-})
+// Start the server only after telemetry tables are ready
+initializeTelemetryTables()
+  .then(() => {
+    app.listen(PORT, () => {
+      console.log(`\x1b[32m\x1b[1m🚀 Activity Logging Server is running on http://localhost:${PORT}\x1b[0m`)
+      console.log(`\x1b[90mWaiting for browser events from extension...\x1b[0m\n`)
+    })
+  })
+  .catch((err) => {
+    console.error("FATAL: Failed to initialize telemetry tables. Refusing to start.", err)
+    process.exit(1)
+  })
