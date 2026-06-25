@@ -10,6 +10,7 @@ import { fileURLToPath } from "url"
 import { initializeTelemetryTables } from "./db/schema.js"
 import { normalizeEvent } from "./ingest/sanitize.js"
 import { persistBatch } from "./ingest/writePath.js"
+import { startRollupScheduler } from "./rollup.js"
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -336,6 +337,8 @@ initializeTelemetryTables(telemetryPool)
       console.log(`\x1b[32m\x1b[1m🚀 Activity Logging Server is running on http://localhost:${PORT}\x1b[0m`)
       console.log(`\x1b[90mWaiting for browser events from extension...\x1b[0m\n`)
     })
+    // Start the background rollup job (recompute insights + retention purge).
+    startRollupScheduler(telemetryPool)
   })
   .catch((err) => {
     console.error("FATAL: Failed to initialize telemetry tables. Refusing to start.", err)
