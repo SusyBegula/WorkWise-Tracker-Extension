@@ -1,0 +1,14 @@
+# Railway service config for the WorkWise telemetry backend.
+# In the Railway dashboard set the service's Root Directory to "backend" so the
+# build context is backend/ and this file + the Dockerfile are picked up.
+# Railway injects PORT at runtime; server.js already reads process.env.PORT.
+
+[build]
+builder = "dockerfile"
+dockerfilePath = "Dockerfile"
+
+[deploy]
+healthcheckPath = "/health"
+healthcheckTimeout = 100
+restartPolicyType = "on_failure"
+restartPolicyMaxRetries = 10
