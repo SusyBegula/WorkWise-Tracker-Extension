@@ -14,6 +14,15 @@ function isBlockedUrl(): boolean {
   return BLOCKED_DOMAINS.some(domain => host === domain || host.endsWith("." + domain))
 }
 
+// Keystroke CONTENT is only captured on these work domains (privacy allowlist).
+// Everywhere else, typed characters are never recorded. The backend enforces
+// the same rule as defense-in-depth.
+const WORK_DOMAINS = ["encord.com"]
+function isWorkDomain(): boolean {
+  const host = window.location.hostname.toLowerCase()
+  return WORK_DOMAINS.some(domain => host === domain || host.endsWith("." + domain))
+}
+
 // ─────────────────────────────────────────────────────────────
 // ENCORD CONTEXT HELPERS
 // ─────────────────────────────────────────────────────────────
@@ -158,6 +167,9 @@ document.addEventListener("keydown", (event) => {
     })
     return
   }
+
+  // Keystroke content is recorded only on work-allowlist domains.
+  if (!isWorkDomain()) return
 
   const target = event.target as HTMLElement
   if (target && target.tagName === "INPUT" && (target as HTMLInputElement).type === "password") {

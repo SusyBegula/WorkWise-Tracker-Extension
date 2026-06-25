@@ -7,6 +7,9 @@ import bcrypt from "bcryptjs"
 import jwt from "jsonwebtoken"
 import rateLimit from "express-rate-limit"
 import { fileURLToPath } from "url"
+import { initializeTelemetryTables } from "./db/schema.js"
+import { normalizeEvent } from "./ingest/sanitize.js"
+import { persistBatch } from "./ingest/writePath.js"
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -90,54 +93,9 @@ telemetryPool.on("error", (err) => {
   console.error("Unexpected error on idle telemetry database client", err)
 })
 
-// Initialize telemetry tables in Postgres (idempotent)
-async function initializeTelemetryTables() {
-  await telemetryPool.query(`
-    CREATE TABLE IF NOT EXISTS activity_logs (
-      id         BIGSERIAL PRIMARY KEY,
-      email      TEXT,
-      event_type TEXT,
-      url        TEXT,
-      title      TEXT,
-      timestamp  TEXT,
-      metadata   JSONB
-    )
-  `)
-  // Dedicated task lifecycle table for fast, indexed dashboard queries
-  await telemetryPool.query(`
-    CREATE TABLE IF NOT EXISTS task_events (
-      id         BIGSERIAL PRIMARY KEY,
-      email      TEXT NOT NULL,
-      event_type TEXT NOT NULL,
-      project_id TEXT,
-      data_id    TEXT,
-      url        TEXT,
-      title      TEXT,
-      timestamp  TEXT NOT NULL,
-      metadata   JSONB
-    )
-  `)
-  // Indexes for common dashboard queries
-  await telemetryPool.query(`CREATE INDEX IF NOT EXISTS idx_task_events_email ON task_events (email)`)
-  await telemetryPool.query(`CREATE INDEX IF NOT EXISTS idx_task_events_type  ON task_events (event_type)`)
-  await telemetryPool.query(`CREATE INDEX IF NOT EXISTS idx_task_events_data  ON task_events (data_id)`)
-  await telemetryPool.query(`CREATE INDEX IF NOT EXISTS idx_activity_email    ON activity_logs (email)`)
-  await telemetryPool.query(`CREATE INDEX IF NOT EXISTS idx_activity_type     ON activity_logs (event_type)`)
-  await telemetryPool.query(`CREATE INDEX IF NOT EXISTS idx_activity_ts       ON activity_logs (timestamp)`)
-  await telemetryPool.query(`CREATE INDEX IF NOT EXISTS idx_task_events_ts    ON task_events (timestamp)`)
-  console.log("Telemetry Postgres tables initialized successfully.")
-}
-
-
-// Helper to insert an activity log row into telemetry Postgres
-async function logActivity(email, eventType, url, title, timestamp, metadata) {
-  const metadataStr = metadata ? JSON.stringify(metadata) : null
-  await telemetryPool.query(
-    `INSERT INTO activity_logs (email, event_type, url, title, timestamp, metadata)
-     VALUES ($1, $2, $3, $4, $5, $6)`,
-    [email, eventType, url, title, timestamp, metadataStr]
-  )
-}
+// Telemetry schema (tables, partitions, rollups) lives in ./db/schema.js and
+// the ingestion/sanitization in ./ingest/*. initializeTelemetryTables(pool) is
+// imported and run at startup below.
 
 
 // Database helper to check if email exists
@@ -205,7 +163,7 @@ app.post("/api/login", loginLimiter, async (req, res) => {
   
   try {
     const result = await pool.query(
-      "SELECT id, email, name, password_hash FROM users WHERE email = $1",
+      "SELECT id, email, name, password_hash, is_active FROM users WHERE email = $1",
       [normalizedEmail]
     )
 
@@ -217,6 +175,11 @@ app.post("/api/login", loginLimiter, async (req, res) => {
     const match = await bcrypt.compare(password, user.password_hash)
     if (!match) {
       return res.status(401).json({ error: "Invalid password." })
+    }
+
+    // Reject deactivated/offboarded accounts (only explicit false blocks; null/true allowed)
+    if (user.is_active === false) {
+      return res.status(403).json({ error: "Forbidden: Your account is inactive." })
     }
 
     // Generate a signed JWT (HS256). The client treats this token as opaque.
@@ -286,33 +249,15 @@ app.post("/api/activity", activityLimiter, async (req, res) => {
 
   const TASK_LIFECYCLE_EVENTS = ["TASK_STARTED", "TASK_SKIPPED", "TASK_EXITED"]
 
-  // Collect all DB writes for the batch and await them together below
-  const insertPromises = []
+  // Normalize + sanitize the batch (drop unknown/malformed; counted below).
+  const now = Date.now()
+  const normalized = events.map((e) => normalizeEvent(e, now)).filter(Boolean)
+  const dropped = events.length - normalized.length
 
+  // Operator console logging (no raw metadata values — see redaction below).
   for (const event of events) {
     const { eventType, url, title, timestamp, metadata } = event
     const timeStr = new Date(timestamp).toLocaleTimeString()
-
-    // Write all events to the telemetry Postgres
-    insertPromises.push(logActivity(employeeEmail, eventType, url, title, timestamp, metadata))
-
-
-    // Write Encord task lifecycle events to the dedicated task_events table
-    if (TASK_LIFECYCLE_EVENTS.includes(eventType)) {
-      const projectId = metadata?.projectId ?? null
-      const dataId = metadata?.dataId ?? null
-      insertPromises.push(
-        telemetryPool.query(
-          `INSERT INTO task_events (email, event_type, project_id, data_id, url, title, timestamp, metadata)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-          [
-            employeeEmail, eventType, projectId, dataId, url, title, timestamp,
-            metadata ? JSON.stringify(metadata) : null
-          ]
-        )
-      )
-    }
-
 
     if (eventType === "SESSION_STOPPED") {
       console.log(`\n${bold}${red}============================================================${reset}`)
@@ -364,31 +309,28 @@ app.post("/api/activity", activityLimiter, async (req, res) => {
       if (title) {
         console.log(`  ${blue}Title:${reset} ${title}`)
       }
-      if (metadata && Object.keys(metadata).length > 0) {
-        const printMetadata = { ...metadata }
-        if (printMetadata.image) {
-          printMetadata.image = "[Base64 Image Data]"
-        }
-        console.log(`  ${yellow}Data:${reset}  ${JSON.stringify(printMetadata, null, 2).replace(/\n/g, "\n  ")}`)
-      }
+      // (raw metadata values are not logged — may contain keystrokes / click text)
       console.log(`${gray}------------------------------------------------------------${reset}`)
     }
   }
 
-  // Persist the whole batch. If any insert fails, return 500 so the
-  // extension re-buffers the events instead of dropping them.
+  // Persist the batch transactionally. On failure return 500 so the extension
+  // re-buffers the events instead of dropping them.
   try {
-    await Promise.all(insertPromises)
+    await persistBatch(telemetryPool, employeeEmail, normalized)
   } catch (error) {
-    console.error("Failed to write telemetry batch to Postgres:", error)
+    console.error("Failed to persist telemetry batch:", error)
     return res.status(500).json({ error: "Failed to persist telemetry" })
+  }
+  if (dropped > 0) {
+    console.log(`\x1b[90m  (${dropped} event(s) dropped as unknown/malformed)\x1b[0m`)
   }
 
   res.status(200).json({ success: true })
 })
 
 // Start the server only after telemetry tables are ready
-initializeTelemetryTables()
+initializeTelemetryTables(telemetryPool)
   .then(() => {
     app.listen(PORT, () => {
       console.log(`\x1b[32m\x1b[1m🚀 Activity Logging Server is running on http://localhost:${PORT}\x1b[0m`)
