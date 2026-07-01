@@ -160,9 +160,11 @@ async function logActivity(
       bufferedEvents: newBuffer
     })
 
-    // Flush immediately if buffer reaches capacity (30 events)
-    if (newBuffer.length >= 30) {
-      console.log("[Activity Tracker] Buffer limit reached. Flushing now.")
+    // TESTING: flush after every event so logs appear on the dashboard almost
+    // immediately (no 30s batching wait). For production, raise this back to ~30
+    // to batch and cut request volume.
+    const FLUSH_AFTER = 1
+    if (newBuffer.length >= FLUSH_AFTER) {
       await flushBufferedEvents()
     }
   }
