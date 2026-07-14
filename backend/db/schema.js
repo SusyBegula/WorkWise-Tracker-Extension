@@ -206,6 +206,20 @@ export async function initializeTelemetryTables(pool) {
     )
   `)
 
+  // Per-employee work-site classification + colors (set by managers in the dashboard).
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS work_sites (
+      email      TEXT NOT NULL,
+      domain     TEXT NOT NULL,
+      is_work    BOOLEAN NOT NULL DEFAULT true,
+      color      TEXT,
+      label      TEXT,
+      updated_by TEXT,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      PRIMARY KEY (email, domain)
+    )
+  `)
+
   // Make sure today's (and tomorrow's) raw partitions exist up front.
   const today = dayKey(new Date())
   await ensureRawPartition(pool, today)
